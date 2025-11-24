@@ -43,6 +43,7 @@ Thumbs.db
 .env.production.local
 .env.local
 .env.example
+.env.*
 
 # Prisma
 prisma/migrations/*.sql
