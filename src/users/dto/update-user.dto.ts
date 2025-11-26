@@ -1,22 +1,15 @@
-// src/auth/dto/register.dto.ts
+// src/users/dto/update-user.dto.ts
 
 import {
-  IsEmail,
   IsString,
-  IsNotEmpty,
-  MinLength,
-  MaxLength,
-  Matches,
   IsOptional,
   IsEnum,
+  IsDateString,
+  MinLength,
+  MaxLength,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-/**
- * 📝 REGISTER DTO
- *
- * Validation des données d'inscription.
- */
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Gender } from '@prisma/client';
 
 // ✅ ENUM pour les régions du Cameroun
 export enum CameroonRegion {
@@ -158,54 +151,27 @@ export enum CameroonCity {
   IDENAU = 'Idenau',
   MUNDEMBA = 'Mundemba',
 }
-
-export class RegisterDto {
-  @ApiProperty({
-    // eslint-disable-next-line prettier/prettier
-    description: 'Adresse email de l\'utilisateur',
-    example: 'john.doe@example.com',
-    format: 'email',
-  })
-  @IsEmail({}, { message: 'Email invalide' })
-  @IsNotEmpty({ message: 'Email requis' })
-  email: string;
-
-  @ApiProperty({
-    description:
-      'Mot de passe (min 8 caractères, avec majuscule, minuscule, chiffre et caractère spécial)',
-    example: 'Password123!',
-    minLength: 8,
-    maxLength: 100,
-    format: 'password',
-  })
-  @IsString({ message: 'Le mot de passe doit être une chaîne de caractères' })
-  @IsNotEmpty({ message: 'Mot de passe requis' })
-  @MinLength(8, {
-    message: 'Le mot de passe doit contenir au moins 8 caractères',
-  })
-  @MaxLength(100, {
-    message: 'Le mot de passe ne peut pas dépasser 100 caractères',
-  })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message:
-      'Le mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial',
-  })
-  password: string;
-
-  @ApiProperty({
-    description: "Prénom de l'utilisateur",
+/**
+ * 📝 UPDATE USER DTO
+ *
+ * Validation des données de mise à jour du profil utilisateur.
+ * TOUS les champs sont optionnels (PATCH partiel).
+ */
+export class UpdateUserDto {
+  @ApiPropertyOptional({
+    description: 'Prénom',
     example: 'John',
     minLength: 2,
     maxLength: 100,
   })
   @IsString({ message: 'Le prénom doit être une chaîne de caractères' })
-  @IsNotEmpty({ message: 'Prénom requis' })
+  @IsOptional()
   @MinLength(2, { message: 'Le prénom doit contenir au moins 2 caractères' })
   @MaxLength(100, { message: 'Le prénom ne peut pas dépasser 100 caractères' })
-  firstName: string;
+  firstName?: string;
 
   @ApiPropertyOptional({
-    description: "Nom de famille de l'utilisateur",
+    description: 'Nom de famille',
     example: 'Doe',
     minLength: 2,
     maxLength: 100,
@@ -224,9 +190,25 @@ export class RegisterDto {
   @IsOptional()
   phone?: string;
 
-  // =====================================
-  // ✅ NOUVEAUX CHAMPS : VILLE ET RÉGION
-  // =====================================
+  @ApiPropertyOptional({
+    description: 'Date de naissance (format ISO)',
+    example: '1990-01-15',
+  })
+  @IsDateString(
+    {},
+    { message: 'Format de date invalide (attendu : YYYY-MM-DD)' },
+  )
+  @IsOptional()
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({
+    description: 'Genre',
+    enum: Gender,
+    example: Gender.MALE,
+  })
+  @IsEnum(Gender, { message: 'Genre invalide' })
+  @IsOptional()
+  gender?: Gender;
 
   @ApiPropertyOptional({
     description: 'Ville de résidence au Cameroun',
@@ -238,9 +220,8 @@ export class RegisterDto {
   city?: CameroonCity;
 
   @ApiPropertyOptional({
-    description: 'Région de résidence au Cameroun',
-    enum: CameroonRegion,
-    example: CameroonRegion.LITTORAL,
+    description: 'Région de résidence',
+    example: 'Littoral',
   })
   @IsEnum(CameroonRegion, { message: 'Région invalide' })
   @IsOptional()

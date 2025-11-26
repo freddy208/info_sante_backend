@@ -30,6 +30,7 @@ import {
   LoggingInterceptor,
 } from './common/interceptors';
 import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 
 /**
  * 🏠 APP MODULE - MODULE RACINE
@@ -71,6 +72,7 @@ import { AuthModule } from './auth/auth.module';
       },
     ]),
     AuthModule,
+    UsersModule,
   ],
 
   controllers: [AppController],

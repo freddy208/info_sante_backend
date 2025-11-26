@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { PrismaClient, AdminRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -431,7 +430,7 @@ async function main() {
   // ============================================
   console.log("👤 Création d'un utilisateur de test...");
 
-  const testUserPassword = await bcrypt.hash('User@2025!', 10);
+  const testUserPassword = await bcrypt.hash('User@2025!1', 10);
 
   await prisma.user.upsert({
     where: { email: 'user.test@infosante.cm' },
