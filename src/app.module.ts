@@ -39,6 +39,7 @@ import { AdministratorsModule } from './administrators/administrators.module';
 import { AnnouncementModule } from './announcement/announcement.module';
 import { AnnouncementRegistrationModule } from './announcement-registration/announcement-registration.module';
 import { ArticleModule } from './article/article.module';
+import { CommentModule } from './comment/comment.module';
 
 /**
  * 🏠 APP MODULE - MODULE RACINE
@@ -89,6 +90,7 @@ import { ArticleModule } from './article/article.module';
     AnnouncementModule,
     AnnouncementRegistrationModule,
     ArticleModule,
+    CommentModule,
   ],
 
   controllers: [AppController],
