@@ -36,6 +36,9 @@ import { CategoriesModule } from './categories/categories.module';
 import { LocationModule } from './location/location.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { AdministratorsModule } from './administrators/administrators.module';
+import { AnnouncementModule } from './announcement/announcement.module';
+import { AnnouncementRegistrationModule } from './announcement-registration/announcement-registration.module';
+import { ArticleModule } from './article/article.module';
 
 /**
  * 🏠 APP MODULE - MODULE RACINE
@@ -83,6 +86,9 @@ import { AdministratorsModule } from './administrators/administrators.module';
     LocationModule,
     OrganizationsModule,
     AdministratorsModule,
+    AnnouncementModule,
+    AnnouncementRegistrationModule,
+    ArticleModule,
   ],
 
   controllers: [AppController],
