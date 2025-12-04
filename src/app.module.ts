@@ -31,6 +31,11 @@ import {
 } from './common/interceptors';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { UploadsModule } from './uploads/uploads.module';
+import { CategoriesModule } from './categories/categories.module';
+import { LocationModule } from './location/location.module';
+import { OrganizationsModule } from './organizations/organizations.module';
+import { AdministratorsModule } from './administrators/administrators.module';
 
 /**
  * 🏠 APP MODULE - MODULE RACINE
@@ -73,6 +78,11 @@ import { UsersModule } from './users/users.module';
     ]),
     AuthModule,
     UsersModule,
+    UploadsModule,
+    CategoriesModule,
+    LocationModule,
+    OrganizationsModule,
+    AdministratorsModule,
   ],
 
   controllers: [AppController],

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 // src/common/guards/jwt-auth.guard.ts
 
@@ -44,9 +45,36 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   /**
    * Gère les erreurs d'authentification
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   handleRequest(err: any, user: any, info: any) {
     // Si erreur ou pas d'utilisateur, rejeter
+    if (err || !user) {
+      throw err || new UnauthorizedException('Token invalide ou expiré');
+    }
+
+    return user;
+  }
+}
+
+@Injectable()
+export class JwtOrganizationAuthGuard extends AuthGuard('jwt-organization') {
+  constructor(private reflector: Reflector) {
+    super();
+  }
+
+  canActivate(context: ExecutionContext) {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true;
+    }
+
+    return super.canActivate(context);
+  }
+
+  handleRequest(err: any, user: any, info: any) {
     if (err || !user) {
       throw err || new UnauthorizedException('Token invalide ou expiré');
     }

@@ -1,8 +1,3 @@
-/* eslint-disable @typescript-eslint/restrict-template-expressions */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 // src/config/env.validation.ts
 
 import { plainToInstance } from 'class-transformer';
@@ -168,7 +163,6 @@ export function validate(config: Record<string, unknown>) {
     errors.forEach((error) => {
       console.error(`🔴 ${error.property}:`);
       if (error.constraints) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         Object.values(error.constraints).forEach((message) => {
           console.error(`   - ${message}`);
         });

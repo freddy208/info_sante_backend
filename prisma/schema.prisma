@@ -390,7 +390,6 @@ model Organization {
   articles         Article[]
   advices          Advice[]
   services         OrganizationService[]
-  media            Media[]
   sessions         Session[]
   verifier         Administrator?           @relation("OrganizationVerifier", fields: [verifiedBy], references: [id])
   suspender        Administrator?           @relation("OrganizationSuspender", fields: [suspendedBy], references: [id])
@@ -776,6 +775,7 @@ model Location {
 model Media {
   id                 String      @id @default(uuid())
   uploadedBy         String
+  uploaderType       UserType
   contentType        ContentType
   contentId          String?
   fileName           String
@@ -792,10 +792,10 @@ model Media {
   createdAt          DateTime    @default(now())
 
   // Relations
-  organization Organization  @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
   announcement Announcement? @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_media_announcement")
   article      Article?      @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_media_article")
 
+  @@index([uploadedBy, uploaderType])
   @@map("media")
 }
 
@@ -921,26 +921,31 @@ model Report {
 }
 
 model Session {
-  id             String     @id @default(uuid())
-  userType       UserType
-  userId         String
-  accessToken    String     @unique
-  refreshToken   String     @unique
-  fcmToken       String?
-  ipAddress      String?
-  userAgent      String?
-  deviceType     DeviceType @default(WEB)
-  isActive       Boolean    @default(true)
-  expiresAt      DateTime
-  lastActivityAt DateTime?
-  createdAt      DateTime   @default(now())
+  id              String     @id @default(uuid())
+  userType        UserType
+  organizationId  String? // Pour les Organizations
+  administratorId String?
+  userId          String?
+  accessToken     String     @unique
+  refreshToken    String     @unique
+  fcmToken        String?
+  ipAddress       String?
+  userAgent       String?
+  deviceType      DeviceType @default(WEB)
+  isActive        Boolean    @default(true)
+  expiresAt       DateTime
+  lastActivityAt  DateTime?
+  createdAt       DateTime   @default(now())
 
   // Relations
   user          User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization  Organization?  @relation(fields: [userId], references: [id], onDelete: Cascade, map: "fk_Session_organization")
   administrator Administrator? @relation(fields: [userId], references: [id], onDelete: Cascade, map: "fk_Session_administrator")
 
+  // ✅ Index pour les recherches
   @@index([userType, userId])
+  @@index([userType, organizationId])
+  @@index([userType, administratorId])
   @@map("sessions")
 }
 
