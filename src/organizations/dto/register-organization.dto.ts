@@ -25,6 +25,10 @@ import { Type } from 'class-transformer';
  *
  * Validation pour l'inscription d'une organisation.
  */
+export interface OpeningHours {
+  [key: string]: string; // ex: { "lundi": "08:00-17:00", "mardi": "Fermé" }
+}
+
 export class RegisterOrganizationDto {
   @ApiProperty({
     description: "Nom de l'organisation",

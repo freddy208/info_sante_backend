@@ -538,4 +538,75 @@ export class CategoriesService {
 
     return finalSlug;
   }
+
+  // =====================================
+  // 🔧 DEV : RECALCULER LES COMPTEURS (OPTIMISÉ)
+  // =====================================
+  async recalculateAllCounts(): Promise<{
+    message: string;
+    updatedCategories: number;
+  }> {
+    this.logger.log('🔄 Début du recalcul des compteurs de catégories...');
+
+    // 1. RÉCUPÉRATION (LECTURE) - EN DEHORS DE LA TRANSACTION
+    const allCategories = await this.prisma.category.findMany();
+
+    // On prépare un tableau de mises à jour
+    // On fait TOUTES les lectures ici (beaucoup plus rapide)
+    const updatesData = await Promise.all(
+      allCategories.map(async (cat) => {
+        // Compter les annonces
+        const announcementsCount = await this.prisma.announcement.count({
+          where: {
+            categoryId: cat.id,
+            status: 'PUBLISHED',
+          },
+        });
+
+        // Compter les articles
+        const articlesCount = await this.prisma.article.count({
+          where: {
+            categoryId: cat.id,
+            status: 'PUBLISHED',
+          },
+        });
+
+        // Compter les conseils
+        const advicesCount = await this.prisma.advice.count({
+          where: {
+            categoryId: cat.id,
+            status: 'PUBLISHED',
+            isActive: true,
+          },
+        });
+
+        // On retourne juste les données pour la future mise à jour
+        return {
+          id: cat.id,
+          data: {
+            announcementsCount,
+            articlesCount,
+            advicesCount,
+          },
+        };
+      }),
+    );
+
+    // 2. ÉCRITURE - DANS UNE TRANSACTION LÉGÈRE
+    // Ici on ne fait que des updates, c'est beaucoup plus propre pour Prisma
+    await this.prisma.$transaction(async (tx) => {
+      for (const update of updatesData) {
+        await tx.category.update({
+          where: { id: update.id },
+          data: update.data,
+        });
+      }
+    });
+
+    this.logger.log(`✅ ${allCategories.length} catégories mises à jour.`);
+    return {
+      message: 'Recomptage terminé avec succès.',
+      updatedCategories: allCategories.length,
+    };
+  }
 }

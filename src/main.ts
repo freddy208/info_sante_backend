@@ -18,7 +18,7 @@ async function bootstrap() {
 
   // 3. Activer CORS (obligatoire pour PWA frontend)
   const corsOrigins = configService.get('CORS_ORIGINS')?.split(',') || [
-    'http://localhost:3001',
+    'http://localhost:3000',
   ];
   app.enableCors({
     origin: corsOrigins, // Domaines autorisés
@@ -60,7 +60,7 @@ async function bootstrap() {
       - 🔔 Notifications (Push, Email, SMS)
       - 📁 Upload de fichiers
       
-      **Base URL:** \`http://localhost:3000/${apiPrefix}\`
+      **Base URL:** \`http://localhost:3001/${apiPrefix}\`
       `,
     )
     .setVersion('1.0')
@@ -120,7 +120,7 @@ async function bootstrap() {
   });
 
   // 7. Démarrer le serveur
-  const port = configService.get<number>('PORT') || 3000;
+  const port = configService.get<number>('PORT') || 3001;
   await app.listen(port);
 
   console.log(`🚀 Application démarrée sur http://localhost:${port}`);

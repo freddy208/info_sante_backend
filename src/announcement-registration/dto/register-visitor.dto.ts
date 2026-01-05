@@ -1,18 +1,14 @@
+// src/modules/announcement/dto/register-visitor.dto.ts
+
 import {
   IsString,
   IsNotEmpty,
-  IsOptional,
   IsEmail,
-  Matches,
   MaxLength,
+  IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-/**
- * 🌍 REGISTER VISITOR DTO
- *
- * Validation pour l'inscription d'un visiteur (non connecté) à une annonce.
- */
 export class RegisterVisitorDto {
   @ApiProperty({
     description: "ID de l'annonce",
@@ -45,18 +41,23 @@ export class RegisterVisitorDto {
   })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^\+237[0-9]{9}$/, {
-    message: 'Le téléphone doit être au format camerounais (+237XXXXXXXXX)',
-  })
   visitorPhone: string;
+
+  // ✅ AJOUT : ID de l'appareil généré par le frontend
+  @ApiProperty({
+    description: "UUID de l'appareil pour garantir l'unicité",
+    example: 'e8b3b2c0-d9e4-11ee-a1b5-02b2c4a1b3c4',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @IsUUID('4')
+  deviceId: string;
 
   @ApiPropertyOptional({
     description: 'Notes additionnelles',
-    example: 'Souhaite une confirmation par SMS',
     maxLength: 500,
   })
   @IsString()
-  @IsOptional()
   @MaxLength(500)
   notes?: string;
 }

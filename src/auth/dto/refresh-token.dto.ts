@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 // src/auth/dto/refresh-token.dto.ts
 
 import { IsString, IsNotEmpty } from 'class-validator';

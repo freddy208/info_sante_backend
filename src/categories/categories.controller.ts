@@ -562,4 +562,10 @@ export class CategoriesController {
   ): Promise<CategoryEntity> {
     return this.categoriesService.activate(id);
   }
+  @Public()
+  @Post('dev/recalculate-counts')
+  @HttpCode(HttpStatus.OK)
+  async recalculate() {
+    return this.categoriesService.recalculateAllCounts();
+  }
 }

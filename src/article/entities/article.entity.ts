@@ -1,11 +1,45 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ArticleStatus } from '@prisma/client';
 
-/**
- * 📰 ARTICLE ENTITY
- *
- * Représentation d'un article pour l'API.
- */
+// ==========================================
+// 🏢 SOUS-ENTITÉ POUR L'ORGANISATION
+// ==========================================
+export class ArticleOrganization {
+  @ApiProperty({ description: "ID de l'organisation" })
+  id: string;
+
+  @ApiProperty({ description: 'Nom de la structure' })
+  name: string;
+
+  @ApiProperty({ description: 'Logo', required: false, nullable: true })
+  logo: string | null;
+
+  @ApiProperty({ description: 'Organisation vérifiée (Confiance)' })
+  isVerified: boolean;
+}
+
+// ==========================================
+// 📂 SOUS-ENTITÉ POUR LA CATÉGORIE
+// ==========================================
+export class ArticleCategory {
+  @ApiProperty({ description: 'ID de la catégorie' })
+  id: string;
+
+  @ApiProperty({ description: 'Nom de la catégorie' })
+  name: string;
+
+  @ApiProperty({
+    description: 'Slug de la catégorie',
+    required: false,
+    nullable: true,
+  })
+  slug: string | null;
+}
+
+// ==========================================
+// 📰 ENTITÉ PRINCIPALE
+// ==========================================
 export class ArticleEntity {
   @ApiProperty({ description: 'ID unique' })
   id: string;
@@ -19,8 +53,8 @@ export class ArticleEntity {
   @ApiPropertyOptional({ description: "Slug unique pour l'URL" })
   slug?: string | undefined;
 
-  @ApiProperty({ description: 'Contenu' })
-  content: string;
+  @ApiPropertyOptional({ description: 'Contenu (seulement dans les détails)' })
+  content?: string | undefined;
 
   @ApiPropertyOptional({ description: 'Résumé' })
   excerpt?: string | undefined;
@@ -41,7 +75,7 @@ export class ArticleEntity {
   readingTime?: number | undefined;
 
   @ApiPropertyOptional({
-    description: 'Tags pour la recherche et classification',
+    description: 'Tags',
     isArray: true,
   })
   tags?: string[];
@@ -73,14 +107,34 @@ export class ArticleEntity {
   @ApiProperty({ description: 'Date de mise à jour' })
   updatedAt: Date;
 
-  // Inclusions optionnelles
-  @ApiPropertyOptional({ description: "Détails de l'organisation" })
-  organization?: any;
+  @ApiPropertyOptional({
+    description: "Détails de l'organisation",
+    type: ArticleOrganization,
+  })
+  organization?: ArticleOrganization;
 
-  @ApiPropertyOptional({ description: 'Détails de la catégorie' })
-  category?: any;
+  @ApiPropertyOptional({
+    description: 'Détails de la catégorie',
+    type: ArticleCategory,
+  })
+  category?: ArticleCategory;
 
-  constructor(partial: Partial<ArticleEntity>) {
-    Object.assign(this, partial);
+  // ==========================================
+  // ✅ CONSTRUCTEUR FINALE
+  // ==========================================
+  // On accepte 'any' car c'est un appel interne du Service.
+  // Le constructeur garantit que l'objet final 'this' est propre.
+  constructor(partial: any) {
+    const sanitized = Object.entries(partial).reduce((acc, [key, value]) => {
+      // Ici on transforme null -> undefined pour respecter les types de l'API
+      if (value === null) {
+        acc[key] = undefined;
+      } else {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as Partial<ArticleEntity>);
+
+    Object.assign(this, sanitized);
   }
 }

@@ -40,6 +40,11 @@ import { AnnouncementModule } from './announcement/announcement.module';
 import { AnnouncementRegistrationModule } from './announcement-registration/announcement-registration.module';
 import { ArticleModule } from './article/article.module';
 import { CommentModule } from './comment/comment.module';
+import { ReactionModule } from './reaction/reaction.module';
+import { BookmarkModule } from './bookmark/bookmark.module';
+import { NotificationModule } from './notification/notification.module';
+import { AdviceModule } from './advice/advice.module';
+import { PublicModule } from './public/public.module';
 
 /**
  * 🏠 APP MODULE - MODULE RACINE
@@ -91,6 +96,11 @@ import { CommentModule } from './comment/comment.module';
     AnnouncementRegistrationModule,
     ArticleModule,
     CommentModule,
+    ReactionModule,
+    BookmarkModule,
+    NotificationModule,
+    AdviceModule,
+    PublicModule,
   ],
 
   controllers: [AppController],

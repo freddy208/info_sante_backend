@@ -25,6 +25,9 @@ import { JwtOrganizationAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 
+/**
+ * 📝 ARTICLES CONTROLLER
+ */
 @ApiTags('Articles')
 @Controller('articles')
 export class ArticleController {
@@ -77,16 +80,32 @@ export class ArticleController {
   }
 
   // =====================================
-  // 🔍 DÉTAILS D'UN ARTICLE (Public)
+  // 🔍 DÉTAILS D'UN ARTICLE (Public - GET)
   // =====================================
   @Public()
   @Get(':idOrSlug')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: "Détails d'un article" })
-  @ApiParam({ name: 'idOrSlug', description: "ID ou slug de l'article" })
+  @ApiParam({ name: 'idOrSlug', description: "ID ou Slug de l'article" })
   @ApiResponse({ status: 200, type: ArticleEntity })
   async findOne(@Param('idOrSlug') idOrSlug: string) {
+    // ✅ BONNE PRATIQUE : Appelle la méthode findOne qui est maintenant une LECTURE PURE
     return this.articleService.findOne(idOrSlug);
+  }
+
+  // =====================================
+  // 👁 INCRÉMENTER LES VUES (Public - PATCH)
+  // =====================================
+  // ✅ NOUVEAU : Route explicite pour l'incrémentation (Best Practice)
+  @Public()
+  @Patch(':idOrSlug/view')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Incrémenter le nombre de vues d'un article" })
+  @ApiParam({ name: 'idOrSlug', description: "ID ou Slug de l'article" })
+  @ApiResponse({ status: 200, type: ArticleEntity })
+  async incrementView(@Param('idOrSlug') idOrSlug: string) {
+    // ✅ BONNE PRATIQUE : Appelle la nouvelle méthode dédiée
+    return this.articleService.viewArticle(idOrSlug);
   }
 
   // =====================================

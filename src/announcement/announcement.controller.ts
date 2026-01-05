@@ -28,6 +28,7 @@ import { AnnouncementEntity } from './entities';
 import { JwtOrganizationAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { RegisterAnnouncementDto } from './dto/register-announcement.dto';
 
 @ApiTags('Announcements')
 @Controller('announcements')
@@ -153,5 +154,21 @@ export class AnnouncementController {
     @CurrentUser('sub') organizationId: string,
   ) {
     return this.announcementService.remove(id, organizationId);
+  }
+
+  // =====================================
+  // 📝 S'INSCRIRE (Public ou Auth)
+  // =====================================
+  @Post(':id/register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: "S'inscrire à une annonce" })
+  async register(
+    @Param('id') id: string,
+    @Body() dto: RegisterAnnouncementDto,
+    @CurrentUser('sub') userId?: string,
+  ) {
+    // Note: Ici on n'utilise pas @UseGuards obligatoirement si on veut permettre aux visiteurs.
+    // Le décorateur @CurrentUser renverra undefined si pas de token valide.
+    return this.announcementService.register(id, userId || null, dto);
   }
 }

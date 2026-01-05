@@ -363,7 +363,7 @@ model Organization {
   latitude           Decimal?           @db.Decimal(10, 8)
   longitude          Decimal?           @db.Decimal(11, 8)
   registrationNumber String             @unique
-  licenseDocument    String? // Document d'agrément (PDF)
+  licenseDocument    String?
   isVerified         Boolean            @default(false)
   verifiedAt         DateTime?
   verifiedBy         String?
@@ -575,6 +575,7 @@ model Announcement {
   capacity             Int? // NOUVEAU : Nombre de places disponibles
   registeredCount      Int                @default(0) // NOUVEAU : Compteur d'inscriptions
   requiresRegistration Boolean            @default(false) // NOUVEAU
+  priority             Priority?          @default(LOW) // NOUVEAU 26/12/2025
   viewsCount           Int                @default(0)
   sharesCount          Int                @default(0)
   commentsCount        Int                @default(0)
@@ -611,7 +612,11 @@ model AnnouncementRegistration {
   announcementId String
   userId         String? // NULL si visiteur non connecté
 
-  // Infos du visiteur non connecté
+  // ✅ AJOUT : ID de l'appareil (UUID généré par le navigateur)
+  // Cela permet de tracer un visiteur unique sur son appareil
+  deviceId String?
+
+  // Infos du visiteur non connecté (non uniques)
   visitorName  String?
   visitorPhone String?
   visitorEmail String?
@@ -629,8 +634,12 @@ model AnnouncementRegistration {
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // ✅ MODIFICATION DES CONTRAINTES D'UNICITÉ
+  // 1. Pour les utilisateurs connectés : 1 User = 1 Inscription
   @@unique([announcementId, userId])
-  @@unique([announcementId, visitorPhone])
+  // 2. Pour les visiteurs (Non connectés) : 1 Appareil = 1 Inscription
+  // (On retire la contrainte sur visitorPhone pour permettre de changer d'info)
+  @@unique([announcementId, deviceId])
   @@map("announcement_registrations")
 }
 
@@ -680,6 +689,7 @@ model Advice {
   title          String
   content        String           @db.Text
   icon           String?
+  reactionsCount Int              @default(0) // ← AJOUTER CETTE LIGNE
   priority       Priority         @default(MEDIUM)
   targetAudience TargetAudience[]
   viewsCount     Int              @default(0)

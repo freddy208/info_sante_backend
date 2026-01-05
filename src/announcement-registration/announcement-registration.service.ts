@@ -105,83 +105,122 @@ export class AnnouncementRegistrationService {
     }
   }
 
-  // =====================================
-  // 🌍 INSCRIRE UN VISITEUR
+  // 🌍 INSCRIRE UN VISITEUR (Appareil)
   // =====================================
   async registerVisitor(
     registerVisitorDto: RegisterVisitorDto,
   ): Promise<RegistrationEntity> {
-    const { announcementId, visitorName, visitorEmail, visitorPhone, notes } =
-      registerVisitorDto;
+    const {
+      announcementId,
+      visitorName,
+      visitorEmail,
+      visitorPhone,
+      deviceId,
+      notes,
+    } = registerVisitorDto;
 
+    // 1. Vérifier que l'annonce existe et est publiée
     const announcement = await this.prisma.announcement.findUnique({
       where: { id: announcementId },
     });
 
     if (!announcement || announcement.status !== AnnouncementStatus.PUBLISHED) {
-      throw new NotFoundException('Annonce non trouvée ou non publiée');
+      throw new NotFoundException('Annonce introuvable ou non publiée');
     }
 
+    // 2. Vérifier si l'inscription est requise
     if (!announcement.requiresRegistration) {
       throw new BadRequestException(
-        "Cette annonce ne nécessite pas d'inscription",
+        "Cette campagne ne nécessite pas d'inscription",
       );
     }
 
-    const existingRegistration =
-      await this.prisma.announcementRegistration.findUnique({
-        where: {
-          announcementId_visitorPhone: { announcementId, visitorPhone },
-        },
-      });
-
-    if (existingRegistration) {
-      throw new BadRequestException(
-        'Ce numéro de téléphone est déjà inscrit à cette annonce',
-      );
-    }
-
+    // 3. Vérifier la capacité
     if (
       announcement.capacity &&
       announcement.registeredCount >= announcement.capacity
     ) {
       throw new BadRequestException(
-        "Il n'y a plus de places disponibles pour cette annonce",
+        "Désolé, il n'y a plus de places disponibles",
+      );
+    }
+
+    // 4. Vérifier si le Device ID est fourni
+    if (!deviceId) {
+      throw new BadRequestException(
+        "L'identifiant de l'appareil (deviceId) est requis pour garantir l'inscription unique.",
       );
     }
 
     try {
-      const registration = await this.prisma.announcementRegistration.create({
-        data: {
-          announcementId,
-          visitorName,
-          visitorEmail,
-          visitorPhone,
-          notes,
-          status: RegistrationStatus.PENDING,
-        },
-        include: {
-          announcement: { select: { id: true, title: true, startDate: true } },
-        },
-      });
+      // On stocke l'objet créé ici pour le retourner ensuite
+      let createdRegistration: any = null;
 
-      await this.prisma.announcement.update({
-        where: { id: announcementId },
-        data: { registeredCount: { increment: 1 } },
+      await this.prisma.$transaction(async (tx) => {
+        // A. Vérifier l'existence de l'inscription (Par Appareil)
+        const existingRegistration =
+          await tx.announcementRegistration.findUnique({
+            where: {
+              announcementId_deviceId: {
+                announcementId,
+                deviceId,
+              },
+            },
+          });
+
+        // B. Si déjà inscrit, on bloque
+        if (existingRegistration) {
+          throw new BadRequestException(
+            'Cet appareil est déjà inscrit à cette campagne.',
+          );
+        }
+
+        // C. Créer l'inscription
+        createdRegistration = await tx.announcementRegistration.create({
+          data: {
+            announcementId,
+            userId: null, // Visiteur
+            deviceId,
+            visitorName,
+            visitorEmail,
+            visitorPhone,
+            notes,
+            status: 'CONFIRMED',
+          },
+        });
+
+        // D. Incrémenter le compteur sur l'annonce
+        await tx.announcement.update({
+          where: { id: announcementId },
+          data: { registeredCount: { increment: 1 } },
+        });
       });
 
       this.logger.log(
-        `Visiteur ${visitorPhone} inscrit à l'annonce ${announcementId}`,
+        `Visiteur ${deviceId} inscrit à l'annonce ${announcementId}`,
       );
+
+      // ✅ CORRECTION DU RETOUR : On retourne l'entité transformée
       return new RegistrationEntity(
-        this.transformRegistrationData(registration),
+        this.transformRegistrationData(createdRegistration),
       );
     } catch (error) {
+      // Si c'est une erreur que l'on a lancée nous-même (BadRequest), on la relance
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      // Gestion des erreurs Prisma (ex: violation de contrainte unique)
+      if (error.code === 'P2002') {
+        throw new BadRequestException(
+          'Une inscription existe déjà pour cet appareil.',
+        );
+      }
+
       this.logger.error(`Erreur inscription visiteur : ${error.message}`);
       throw new BadRequestException("Erreur lors de l'inscription");
     }
   }
-
   // =====================================
   // 👤 MES INSCRIPTIONS
   // =====================================
