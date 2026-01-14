@@ -22,20 +22,17 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // ==========================================
-  // ✅ CORRECTION CORS : Configuration Unique et Complète
+  // ✅ CORRECTION CORS : Dynamique et Sécurisée
   // ==========================================
-  // On fusionne les deux configurations précédentes en une seule robuste.
-  // On inclut localhost et 127.0.0.1 pour éviter les blocages de cookies.
+  // On récupère les origines depuis le .env.
+  // En local : "http://localhost:3000,http://localhost:3001"
+  // Sur Render : "https://info-sante-237.vercel.app"
+  const corsOrigins = configService.get<string>('CORS_ORIGINS');
+
   app.enableCors({
-    origin: [
-      'http://localhost:3000', // Frontend principal
-      'http://localhost:3001', // Au cas où
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:3001',
-      // Ajoutez votre URL en production ici si besoin (ex: https://votre-site.com)
-    ],
-    credentials: true, // <--- INDISPENSABLE pour que le navigateur envoie le Cookie de Refresh
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // <--- Ajouté DELETE et OPTIONS
+    origin: corsOrigins ? corsOrigins.split(',') : ['http://localhost:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
   // 4. Ajouter préfixe global aux routes API
@@ -132,7 +129,7 @@ async function bootstrap() {
 
   // 7. Démarrer le serveur
   const port = configService.get<number>('PORT') || 3001;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
   console.log(`🚀 Application démarrée sur http://localhost:${port}`);
   console.log(
