@@ -20,15 +20,21 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { OrganizationType } from '@prisma/client';
 import { Type } from 'class-transformer';
 
+export type Weekday =
+  | 'lundi'
+  | 'mardi'
+  | 'mercredi'
+  | 'jeudi'
+  | 'vendredi'
+  | 'samedi'
+  | 'dimanche';
+export type OpeningHours = Record<Weekday, string>; // ex: { lundi: '08:00-17:00', mardi: 'Fermé', ... }
+
 /**
  * 📝 REGISTER ORGANIZATION DTO
  *
  * Validation pour l'inscription d'une organisation.
  */
-export interface OpeningHours {
-  [key: string]: string; // ex: { "lundi": "08:00-17:00", "mardi": "Fermé" }
-}
-
 export class RegisterOrganizationDto {
   @ApiProperty({
     description: "Nom de l'organisation",
@@ -202,7 +208,7 @@ export class RegisterOrganizationDto {
   insuranceAccepted?: string[];
 
   @ApiPropertyOptional({
-    description: "Heures d'ouverture (format JSON)",
+    description: "Heures d'ouverture (JSON)",
     example: {
       lundi: '08:00-17:00',
       mardi: '08:00-17:00',
@@ -214,5 +220,5 @@ export class RegisterOrganizationDto {
     },
   })
   @IsOptional()
-  openingHours?: any;
+  openingHours?: OpeningHours;
 }

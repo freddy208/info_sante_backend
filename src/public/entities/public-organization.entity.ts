@@ -4,18 +4,45 @@ export class PublicOrganizationEntity {
   id: string;
   name: string;
   type: OrganizationType;
-  phone: string;
+
+  /**
+   * Téléphone public normalisé (ex: +2376xxxxxxx)
+   */
+  phone?: string;
+
   address: string;
   city: string;
   region: string;
-  latitude: number; // FORCEMENT number pour la carte
-  longitude: number; // FORCEMENT number
+
+  /**
+   * Coordonnées TOUJOURS en number
+   */
+  latitude: number;
+  longitude: number;
+
+  /**
+   * Distance en kilomètres (si calculée)
+   */
   distance?: number;
 
   constructor(partial: Partial<PublicOrganizationEntity>) {
-    // Conversion explicite lors de l'instanciation si nécessaire
-    if (partial.latitude) partial.latitude = Number(partial.latitude);
-    if (partial.longitude) partial.longitude = Number(partial.longitude);
-    Object.assign(this, partial);
+    if (partial.latitude !== undefined) {
+      partial.latitude = Number(partial.latitude);
+    }
+
+    if (partial.longitude !== undefined) {
+      partial.longitude = Number(partial.longitude);
+    }
+
+    if (partial.distance !== undefined) {
+      partial.distance = Math.max(0, Number(partial.distance.toFixed(2)));
+    }
+
+    Object.assign(this, {
+      address: '',
+      city: '',
+      region: '',
+      ...partial,
+    });
   }
 }

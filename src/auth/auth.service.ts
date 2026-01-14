@@ -1,8 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-// src/auth/auth.service.ts
-
 import {
   Injectable,
   ConflictException,
@@ -15,11 +11,41 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthResponse } from './interfaces/auth-response.interface';
 import { JwtPayloadData } from './interfaces/jwt-payload.interface';
 import * as bcrypt from 'bcrypt';
-import { UserStatus } from '@prisma/client';
+import {
+  UserStatus,
+  ActorType,
+  ActionType,
+  ResourceType,
+  AuditStatus,
+} from '@prisma/client';
+import { InputJsonValue } from '@prisma/client/runtime/library';
 import { PrismaService } from 'prisma/prisma.service';
+import { randomBytes } from 'crypto';
+import { MailService } from 'src/mail/mail.service';
+import type { SignOptions } from 'jsonwebtoken';
+import { RedisService } from '../redis/redis.service';
+import { randomUUID } from 'crypto';
+
+/**
+ * ✅ Interface stricte pour les données d'Audit Log
+ */
+interface CreateAuditLogData {
+  actorType: ActorType;
+  actorId: string;
+  action: ActionType;
+  resourceType: ResourceType;
+  resourceId?: string;
+  status?: AuditStatus;
+  changes?: InputJsonValue;
+  metadata?: InputJsonValue;
+  ipAddress?: string;
+  errorMessage?: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -29,6 +55,8 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mailService: MailService,
+    private redisService: RedisService,
   ) {}
 
   // =====================================
@@ -39,7 +67,6 @@ export class AuthService {
     const { email, password, phone, firstName, lastName, city, region } =
       registerDto;
 
-    // Vérification email
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true, email: true, status: true, deletedAt: true },
@@ -51,27 +78,23 @@ export class AuthService {
       }
       if (existingUser.status === UserStatus.DELETED) {
         throw new ConflictException(
-          'Un compte supprimé existe avec cet email. Veuillez contacter le support.',
+          'Compte supprimé existant. Contactez le support.',
         );
       }
     }
 
-    // Vérification téléphone
     if (phone) {
       const existingPhone = await this.prisma.user.findUnique({
         where: { phone },
         select: { id: true, status: true },
       });
-
       if (existingPhone && existingPhone.status !== UserStatus.DELETED) {
         throw new ConflictException('Ce numéro de téléphone est déjà utilisé');
       }
     }
 
-    // Hashage mot de passe
     const hashedPassword = await this.hashPassword(password);
 
-    // Création utilisateur
     try {
       const user = await this.prisma.user.create({
         data: {
@@ -97,20 +120,40 @@ export class AuthService {
         },
       });
 
-      // Génération tokens
       const tokens = await this.generateTokens(user.id, user.email);
 
-      // Audit log
       await this.createAuditLog({
-        actorType: 'USER',
+        actorType: ActorType.USER,
         actorId: user.id,
-        action: 'CREATE',
-        resourceType: 'USER',
+        action: ActionType.CREATE,
+        resourceType: ResourceType.USER,
         resourceId: user.id,
-        metadata: { email: user.email, registrationSource: 'WEB' },
+        status: AuditStatus.SUCCESS,
+        metadata: { email: user.email, source: 'WEB' } as InputJsonValue,
       });
 
-      this.logger.log(`✅ Nouvel utilisateur inscrit : ${user.email}`);
+      this.logger.log(`✅ Nouvel utilisateur : ${user.email}`);
+      try {
+        await this.prisma.userPreference.upsert({
+          where: { userId: user.id },
+          update: {},
+          create: {
+            userId: user.id,
+            categories: [],
+            organizations: [],
+            cities: user.city ? [user.city] : [],
+            regions: user.region ? [user.region] : [],
+            notificationsEnabled: true,
+            emailNotifications: true,
+            pushNotifications: true,
+            language: 'FR',
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Init préférences échouée pour user ${user.id} (safe)`,
+        );
+      }
 
       return {
         accessToken: tokens.accessToken,
@@ -123,12 +166,15 @@ export class AuthService {
           phone: user.phone,
           avatar: user.avatar,
           status: user.status,
-          city: user.city || null,
-          region: user.region || null,
+          city: user.city,
+          region: user.region,
         },
       };
     } catch (error) {
-      this.logger.error(`❌ Erreur inscription : ${error.message}`);
+      // ✅ FIX SÉCURITÉ : Vérification 'instanceof Error' pour éviter l'erreur ESLint
+      const message =
+        error instanceof Error ? error.message : 'Erreur inconnue';
+      this.logger.error(`❌ Erreur inscription : ${message}`);
       throw new BadRequestException('Erreur lors de la création du compte');
     }
   }
@@ -157,72 +203,54 @@ export class AuthService {
       },
     });
 
-    if (!user) {
+    if (!user)
       throw new UnauthorizedException('Email ou mot de passe incorrect');
-    }
 
-    // Vérifications statut
     if (user.status === UserStatus.DELETED || user.deletedAt) {
-      this.logger.warn(`🚫 Tentative connexion compte supprimé : ${email}`);
       throw new ForbiddenException(
         'Ce compte a été supprimé. Contactez le support.',
       );
     }
+    if (user.status === UserStatus.SUSPENDED)
+      throw new ForbiddenException('Compte suspendu.');
+    if (user.status === UserStatus.INACTIVE)
+      throw new ForbiddenException('Compte inactif.');
 
-    if (user.status === UserStatus.SUSPENDED) {
-      this.logger.warn(`🚫 Tentative connexion compte suspendu : ${email}`);
-      throw new ForbiddenException('Votre compte a été suspendu.');
-    }
-
-    if (user.status === UserStatus.INACTIVE) {
-      throw new ForbiddenException('Compte inactif. Vérifiez votre email.');
-    }
-
-    if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException('Impossible de se connecter.');
-    }
-
-    // Vérification mot de passe
     const isPasswordValid = await this.comparePasswords(
       password,
       user.password,
     );
-
     if (!isPasswordValid) {
       await this.createAuditLog({
-        actorType: 'USER',
+        actorType: ActorType.USER,
         actorId: user.id,
-        action: 'LOGIN',
-        resourceType: 'USER',
+        action: ActionType.LOGIN,
+        resourceType: ResourceType.USER,
         resourceId: user.id,
-        status: 'FAILURE',
-        metadata: { reason: 'Invalid password', ipAddress },
+        status: AuditStatus.FAILURE,
+        metadata: { reason: 'Invalid password', ipAddress } as InputJsonValue,
       });
-
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
 
-    // Génération tokens
     const tokens = await this.generateTokens(user.id, user.email);
 
-    // Mise à jour dernière connexion
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date(), lastLoginIp: ipAddress },
     });
 
-    // Audit log succès
     await this.createAuditLog({
-      actorType: 'USER',
+      actorType: ActorType.USER,
       actorId: user.id,
-      action: 'LOGIN',
-      resourceType: 'USER',
+      action: ActionType.LOGIN,
+      resourceType: ResourceType.USER,
       resourceId: user.id,
-      status: 'SUCCESS',
-      metadata: { ipAddress },
+      status: AuditStatus.SUCCESS,
+      metadata: { ipAddress } as InputJsonValue,
     });
 
-    this.logger.log(`✅ Connexion réussie : ${user.email}`);
+    this.logger.log(`✅ Connexion : ${user.email}`);
 
     return {
       accessToken: tokens.accessToken,
@@ -235,8 +263,8 @@ export class AuthService {
         phone: user.phone,
         avatar: user.avatar,
         status: user.status,
-        city: user.city || null,
-        region: user.region || null,
+        city: user.city,
+        region: user.region,
       },
     };
   }
@@ -245,74 +273,163 @@ export class AuthService {
   // 🔄 REFRESH TOKEN
   // =====================================
 
-  async refreshTokens(
-    userId: string,
-    refreshToken: string,
-  ): Promise<{ accessToken: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        status: true,
-        deletedAt: true,
-      },
-    });
+  async refreshTokens(refreshToken: string) {
+    let payload: JwtPayloadData;
 
-    if (!user) {
-      throw new UnauthorizedException('Utilisateur non trouvé');
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.configService.get('jwt.refreshSecret'),
+      });
+    } catch {
+      throw new UnauthorizedException('Refresh token invalide');
     }
 
-    if (user.status === UserStatus.DELETED || user.deletedAt) {
-      this.logger.warn(
-        `🚫 Tentative refresh sur compte supprimé : ${user.email}`,
-      );
-      throw new ForbiddenException(
-        'Ce compte a été supprimé. Veuillez contacter le support.',
-      );
+    if (payload.type !== 'refresh' || !payload.jti) {
+      throw new UnauthorizedException('Token invalide');
     }
 
-    if (user.status === UserStatus.SUSPENDED) {
-      this.logger.warn(
-        `🚫 Tentative refresh sur compte suspendu : ${user.email}`,
-      );
-      throw new ForbiddenException(
-        'Votre compte a été suspendu. Veuillez contacter le support.',
-      );
+    const redis = this.redisService.getClient();
+    const key = `refresh:${payload.sub}:${payload.jti}`;
+
+    const exists = await redis.get(key);
+    if (!exists) {
+      throw new UnauthorizedException('Refresh token expiré ou révoqué');
     }
 
-    if (user.status === UserStatus.INACTIVE) {
-      throw new ForbiddenException(
-        'Votre compte est inactif. Veuillez vérifier votre email.',
-      );
-    }
+    // 🔁 ROTATION
+    await redis.del(key);
 
-    if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException('Impossible de renouveler le token');
-    }
+    const newAccessToken = await this.generateAccessToken(
+      payload.sub,
+      payload.email,
+    );
 
-    const accessToken = await this.generateAccessToken(user.id, user.email);
+    const newRefreshToken = await this.generateRefreshToken(
+      payload.sub,
+      payload.email,
+    );
 
-    await this.createAuditLog({
-      actorType: 'USER',
-      actorId: user.id,
-      action: 'LOGIN',
-      resourceType: 'USER',
-      resourceId: user.id,
-      status: 'SUCCESS',
-      metadata: {
-        action: 'token_refresh',
-        method: 'refresh_token',
-      },
-    });
-
-    this.logger.log(`✅ Token renouvelé pour : ${user.email}`);
-
-    return { accessToken };
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 
   // =====================================
-  // 🔧 MÉTHODES UTILITAIRES
+  // 🔑 MOT DE PASSE OUBLIÉ
+  // =====================================
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const { email } = dto;
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true, firstName: true, status: true },
+    });
+
+    if (!user) {
+      this.logger.warn(`Tentative reset email inconnu : ${email}`);
+      return { message: 'Si cet email existe, un lien a été envoyé.' };
+    }
+
+    if (user.status !== UserStatus.ACTIVE)
+      return { message: 'Compte inactif.' };
+
+    const resetToken = randomBytes(32).toString('hex');
+    const hashedToken = await bcrypt.hash(resetToken, 10);
+
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 15);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetToken: hashedToken,
+        passwordResetExpires: expiresAt,
+      },
+    });
+
+    const frontendUrl = this.configService.get<string>(
+      'FRONTEND_URL',
+      'http://localhost:3000',
+    );
+    const resetLink = `${frontendUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(user.email)}`;
+
+    await this.mailService.sendPasswordReset(
+      user.email,
+      user.firstName || 'Utilisateur',
+      resetLink,
+    );
+
+    this.logger.log(`✅ Reset email envoyé à : ${user.email}`);
+    return {
+      message: 'Si cet email existe, un lien de réinitialisation a été envoyé.',
+    };
+  }
+
+  // =====================================
+  // 🔁 RÉINITIALISER MOT DE PASSE
+  // =====================================
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const { email, token, password } = dto;
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        passwordResetToken: true,
+        passwordResetExpires: true,
+        status: true,
+      },
+    });
+
+    if (!user)
+      throw new BadRequestException(
+        'Utilisateur introuvable ou lien invalide.',
+      );
+    if (!user.passwordResetToken || !user.passwordResetExpires) {
+      throw new BadRequestException(
+        'Aucune demande de réinitialisation en cours.',
+      );
+    }
+    if (new Date() > user.passwordResetExpires) {
+      throw new BadRequestException('Le lien de réinitialisation a expiré.');
+    }
+
+    const isTokenValid = await bcrypt.compare(token, user.passwordResetToken);
+    if (!isTokenValid) {
+      this.logger.warn(`❌ Tentative reset token invalide pour ${email}`);
+      throw new BadRequestException('Lien de réinitialisation invalide.');
+    }
+
+    const hashedPassword = await this.hashPassword(password);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+      },
+    });
+
+    await this.createAuditLog({
+      actorType: ActorType.USER,
+      actorId: user.id,
+      action: ActionType.UPDATE,
+      resourceType: ResourceType.USER,
+      resourceId: user.id,
+      status: AuditStatus.SUCCESS,
+      metadata: { reason: 'Password Reset' } as InputJsonValue,
+    });
+
+    this.logger.log(`✅ Mot de passe réinitialisé : ${email}`);
+    return { message: 'Mot de passe modifié avec succès.' };
+  }
+
+  // =====================================
+  // 🔧 UTILITAIRES
   // =====================================
 
   private async hashPassword(password: string): Promise<string> {
@@ -341,39 +458,57 @@ export class AuthService {
     userId: string,
     email: string,
   ): Promise<string> {
-    const payload: JwtPayloadData = {
-      sub: userId,
-      email,
-      type: 'access',
-    };
+    const payload: JwtPayloadData = { sub: userId, email, type: 'access' };
 
-    return this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('jwt.secret'),
-      expiresIn: this.configService.get<string>('jwt.expiresIn') as any, // allow string values like '15m'
-    });
+    const jwtOptions = {
+      secret: this.configService.get<string>('jwt.secret', 'default-secret'),
+      expiresIn: this.configService.get<string>('jwt.expiresIn', '15m'),
+    } as SignOptions;
+
+    return this.jwtService.signAsync<JwtPayloadData>(payload, jwtOptions);
   }
 
   private async generateRefreshToken(
     userId: string,
     email: string,
+    ip?: string,
+    userAgent?: string,
   ): Promise<string> {
+    const jti = randomUUID();
+
     const payload: JwtPayloadData = {
       sub: userId,
       email,
       type: 'refresh',
+      jti,
     };
 
-    return this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('jwt.refreshSecret'),
-      expiresIn: this.configService.get<string>('jwt.refreshExpiresIn') as any, // allow string values like '7d'
+    const token = await this.jwtService.signAsync(payload, {
+      secret: this.configService.get('jwt.refreshSecret'),
+      expiresIn: '7d',
     });
+
+    const redis = this.redisService.getClient();
+
+    await redis.set(
+      `refresh:${userId}:${jti}`,
+      JSON.stringify({ ip, userAgent }),
+      'EX',
+      7 * 24 * 60 * 60,
+    );
+
+    return token;
   }
 
-  private async createAuditLog(data: any): Promise<void> {
+  // ✅ MÉTHODE AJOUTÉE (Manquait dans votre snippet)
+  private async createAuditLog(data: CreateAuditLogData): Promise<void> {
     try {
       await this.prisma.auditLog.create({ data });
     } catch (error) {
-      this.logger.error(`Erreur audit log : ${error.message}`);
+      // ✅ FIX SÉCURITÉ : Vérification 'instanceof Error'
+      const message =
+        error instanceof Error ? error.message : 'Erreur inconnue';
+      this.logger.error(`Erreur audit log : ${message}`);
     }
   }
 }

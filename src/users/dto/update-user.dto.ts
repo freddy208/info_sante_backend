@@ -7,6 +7,7 @@ import {
   IsDateString,
   MinLength,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender } from '@prisma/client';
@@ -151,11 +152,11 @@ export enum CameroonCity {
   IDENAU = 'Idenau',
   MUNDEMBA = 'Mundemba',
 }
+// src/users/dto/update-user.dto.ts
 /**
  * 📝 UPDATE USER DTO
  *
  * Validation des données de mise à jour du profil utilisateur.
- * TOUS les champs sont optionnels (PATCH partiel).
  */
 export class UpdateUserDto {
   @ApiPropertyOptional({
@@ -183,10 +184,11 @@ export class UpdateUserDto {
   lastName?: string;
 
   @ApiPropertyOptional({
-    description: 'Numéro de téléphone',
-    example: '+237 6 XX XX XX XX',
+    description: 'Numéro de téléphone (format Camerounais +2376XXXXXXXX)',
+    example: '+237612345678',
   })
-  @IsString()
+  @IsString({ message: 'Le téléphone doit être une chaîne de caractères' })
+  @Matches(/^\+2376\d{8}$/, { message: 'Numéro de téléphone invalide' })
   @IsOptional()
   phone?: string;
 
@@ -194,10 +196,7 @@ export class UpdateUserDto {
     description: 'Date de naissance (format ISO)',
     example: '1990-01-15',
   })
-  @IsDateString(
-    {},
-    { message: 'Format de date invalide (attendu : YYYY-MM-DD)' },
-  )
+  @IsDateString({}, { message: 'Format de date invalide (YYYY-MM-DD)' })
   @IsOptional()
   dateOfBirth?: string;
 
@@ -221,7 +220,8 @@ export class UpdateUserDto {
 
   @ApiPropertyOptional({
     description: 'Région de résidence',
-    example: 'Littoral',
+    enum: CameroonRegion,
+    example: CameroonRegion.LITTORAL,
   })
   @IsEnum(CameroonRegion, { message: 'Région invalide' })
   @IsOptional()

@@ -29,6 +29,7 @@ import { JwtOrganizationAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { RegisterAnnouncementDto } from './dto/register-announcement.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Announcements')
 @Controller('announcements')
@@ -60,6 +61,7 @@ export class AnnouncementController {
   @Public()
   @Get()
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 60, ttl: 60 } })
   @ApiOperation({ summary: 'Lister les annonces publiées' })
   @ApiResponse({
     status: 200,
@@ -76,6 +78,7 @@ export class AnnouncementController {
   @UseGuards(JwtOrganizationAuthGuard)
   @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 100, ttl: 60 } })
   @ApiOperation({ summary: 'Lister mes annonces (tous statuts)' })
   async findMy(
     @Query() query: QueryAnnouncementDto,
@@ -90,6 +93,7 @@ export class AnnouncementController {
   @Public()
   @Get(':idOrSlug')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 100, ttl: 60 } })
   @ApiOperation({ summary: "Détails d'une annonce" })
   @ApiParam({ name: 'idOrSlug', description: "ID ou slug de l'annonce" })
   @ApiResponse({ status: 200, type: AnnouncementEntity })
@@ -104,19 +108,15 @@ export class AnnouncementController {
   @UseGuards(JwtOrganizationAuthGuard)
   @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mettre à jour une annonce (brouillon)' })
+  @ApiOperation({ summary: 'Mettre à jour une annonce' })
   @ApiParam({ name: 'id', description: "ID de l'annonce" })
   @ApiResponse({ status: 200, type: AnnouncementEntity })
   async update(
     @Param('id') id: string,
-    @Body() updateAnnouncementDto: UpdateAnnouncementDto,
+    @Body() dto: UpdateAnnouncementDto,
     @CurrentUser('sub') organizationId: string,
   ) {
-    return this.announcementService.update(
-      id,
-      updateAnnouncementDto,
-      organizationId,
-    );
+    return this.announcementService.update(id, dto, organizationId);
   }
 
   // =====================================
@@ -161,14 +161,13 @@ export class AnnouncementController {
   // =====================================
   @Post(':id/register')
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 5, ttl: 60 } })
   @ApiOperation({ summary: "S'inscrire à une annonce" })
   async register(
     @Param('id') id: string,
     @Body() dto: RegisterAnnouncementDto,
-    @CurrentUser('sub') userId?: string,
+    @CurrentUser('sub') userId: string | null,
   ) {
-    // Note: Ici on n'utilise pas @UseGuards obligatoirement si on veut permettre aux visiteurs.
-    // Le décorateur @CurrentUser renverra undefined si pas de token valide.
-    return this.announcementService.register(id, userId || null, dto);
+    return this.announcementService.register(id, userId, dto);
   }
 }

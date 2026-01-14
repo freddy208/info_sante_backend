@@ -1,14 +1,6 @@
-// src/auth/dto/refresh-token.dto.ts
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
-import { IsString, IsNotEmpty } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger'; // ✅ Ajouté
-
-/**
- * 🔄 REFRESH TOKEN DTO
- // eslint-disable-next-line prettier/prettier
- * 
- * Validation du refresh token.
- */
 export class RefreshTokenDto {
   @ApiProperty({
     description: 'Refresh token JWT',
@@ -17,4 +9,12 @@ export class RefreshTokenDto {
   @IsString({ message: 'Refresh token invalide' })
   @IsNotEmpty({ message: 'Refresh token requis' })
   refreshToken: string;
+
+  @ApiProperty({
+    description: 'Device ID (optionnel pour sécuriser la session)',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  deviceId?: string;
 }

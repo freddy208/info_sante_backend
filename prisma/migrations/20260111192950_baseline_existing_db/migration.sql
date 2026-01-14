@@ -1,0 +1,3 @@
+-- Baseline migration
+-- Database already contains search_vector columns and indexes
+-- This migration is intentionally empty

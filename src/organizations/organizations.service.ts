@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -23,6 +24,7 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { OrganizationEntity } from './entities/organization.entity';
 import { OrganizationMemberEntity } from './entities/organization-member.entity';
+import { SearchOrganizationsDto } from './dto/search-organizations.dto';
 import {
   OrganizationType,
   OrganizationStatus,
@@ -32,6 +34,10 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'prisma/prisma.service';
+import { Inject } from '@nestjs/common';
+import { REDIS_CLIENT } from '../redis/redis.module';
+import Redis from 'ioredis';
+import { OrganizationSearchRow } from './types/organization-search-row.type';
 
 /**
  * 🏥 ORGANIZATIONS SERVICE
@@ -55,6 +61,9 @@ export class OrganizationsService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private locationService: LocationService,
+
+    @Inject(REDIS_CLIENT)
+    private readonly redis: Redis,
   ) {}
 
   // =====================================
@@ -560,6 +569,7 @@ export class OrganizationsService {
     isVerified?: boolean,
     status?: OrganizationStatus,
     search?: string,
+    sortBy?: string, // ✅ AJOUT DU PARAMÈTRE
   ) {
     // ✅ Validation pagination
     if (limit > 100) limit = 100;
@@ -601,6 +611,41 @@ export class OrganizationsService {
         { description: { contains: search, mode: 'insensitive' } },
       ];
     }
+    // ✅ LOGIQUE DE TRI DYNAMIQUE
+    let orderBy: any;
+
+    switch (sortBy) {
+      case 'name':
+        orderBy = { name: 'asc' }; // Nom A-Z
+        break;
+
+      case 'rating':
+        orderBy = { rating: 'desc' }; // Meilleures notes
+        break;
+
+      case 'distance':
+        // ⚠️ LIMITATION : On ne peut pas trier par distance ici car 'lat' et 'lng' de l'utilisateur
+        // ne sont pas passés en argument de cette fonction globale.
+        // On applique le tri par défaut.
+        this.logger.warn(
+          '⚠️ Tri par "distance" demandé mais impossible sans localisation GPS. Tri par défaut appliqué.',
+        );
+        orderBy = [
+          { isVerified: 'desc' },
+          { rating: 'desc' },
+          { createdAt: 'desc' },
+        ];
+        break;
+
+      default:
+        // Tri par défaut (Vérifiées -> Notes -> Plus récentes)
+        orderBy = [
+          { isVerified: 'desc' },
+          { rating: 'desc' },
+          { createdAt: 'desc' },
+        ];
+        break;
+    }
 
     // ✅ Récupérer les organisations
     const [organizations, total] = await Promise.all([
@@ -608,11 +653,7 @@ export class OrganizationsService {
         where,
         skip,
         take: limit,
-        orderBy: [
-          { isVerified: 'desc' }, // Vérifiées en premier
-          { rating: 'desc' }, // Meilleures notes
-          { createdAt: 'desc' }, // Plus récentes
-        ],
+        orderBy,
         select: {
           id: true,
           name: true,
@@ -996,5 +1037,112 @@ export class OrganizationsService {
     const unit = match[2];
 
     return value * units[unit];
+  }
+  // src/organizations/organizations.service.ts
+
+  async searchOrganizations(dto: SearchOrganizationsDto) {
+    const { q, city, region, page = 1, limit = 20 } = dto;
+
+    const safeLimit = Math.min(limit, 50);
+    const offset = (page - 1) * safeLimit;
+
+    // 🔑 Clé Redis déterministe
+    const cacheKey = `org:search:${q || 'all'}:${city || 'all'}:${region || 'all'}:${page}:${safeLimit}`;
+
+    // ⚡ 1. Cache
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    // 🧠 2. Construction SQL sécurisée
+    const conditions: string[] = [
+      `"status" = 'ACTIVE'`,
+      `"isVerified" = true`,
+      `"deletedAt" IS NULL`,
+    ];
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (city) {
+      conditions.push(`"city" ILIKE $${paramIndex++}`);
+      params.push(`%${city}%`);
+    }
+
+    if (region) {
+      conditions.push(`"region" ILIKE $${paramIndex++}`);
+      params.push(`%${region}%`);
+    }
+
+    let searchSql = '';
+    if (q) {
+      searchSql = `
+      AND search_vector @@ plainto_tsquery('french', unaccent($${paramIndex}))
+    `;
+      params.push(q);
+      paramIndex++;
+    }
+    let searchParamIndex: number | null = null;
+
+    if (q) {
+      searchParamIndex = paramIndex;
+      searchSql = `
+    AND search_vector @@ plainto_tsquery('french', unaccent($${paramIndex}))
+  `;
+      params.push(q);
+      paramIndex++;
+    }
+
+    const sql = `
+    SELECT
+      id,
+      name,
+      type,
+      city,
+      region,
+      logo,
+      description,
+      rating,
+      totalReviews,
+      emergencyAvailable,
+      ${searchParamIndex ? `ts_rank(search_vector, plainto_tsquery('french', unaccent($${searchParamIndex})))` : '0'} AS rank
+    FROM organizations
+    WHERE ${conditions.join(' AND ')}
+    ${searchSql}
+    ORDER BY
+      rank DESC NULLS LAST,
+      rating DESC,
+      "createdAt" DESC
+    LIMIT $${paramIndex}
+    OFFSET $${paramIndex + 1}
+  `;
+
+    params.push(safeLimit, offset);
+
+    // 🔍 3. Exécution SQL
+    const data = await this.prisma.$queryRawUnsafe<OrganizationSearchRow[]>(
+      sql,
+      ...params,
+    );
+
+    const response = {
+      data: data.map((org: any) => new OrganizationEntity(org)),
+      meta: {
+        page,
+        limit: safeLimit,
+        hasNextPage: data.length === safeLimit,
+      },
+    };
+
+    // ⚡ 4. Cache (TTL court)
+    await this.redis.set(
+      cacheKey,
+      JSON.stringify(response),
+      'EX',
+      300, // 5 minutes
+    );
+
+    return response;
   }
 }

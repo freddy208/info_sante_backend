@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -10,6 +12,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import {
@@ -18,17 +21,28 @@ import {
   QueryArticleDto,
 } from './dto';
 import { ArticleEntity } from './entities';
-import { ArticleStatus } from '@prisma/client';
+import { ArticleStatus, Prisma } from '@prisma/client';
 import { slugify } from 'src/common/utils/slugify.util';
+import * as sanitizeHtml from 'sanitize-html'; // ✅ SÉCURITÉ: Installation requise
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import * as cacheManager from 'cache-manager';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class ArticleService {
   private readonly logger = new Logger(ArticleService.name);
+  
+  // ✅ SCALABILITÉ: Configuration Redis (Identique aux Annonces)
+  private readonly VIEWS_CACHE_PREFIX = 'article_views:';
+  private readonly VIEWS_BATCH_THRESHOLD = 10; // Sync vers DB tous les 10 vues
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: cacheManager.Cache,
+  ) {}
 
   // =====================================
-  // 📝 CRÉER UN ARTICLE (BROUILLON)
+  // 📝 CRÉER UN ARTICLE (SÉCURISÉ)
   // =====================================
   async create(
     createArticleDto: CreateArticleDto,
@@ -48,15 +62,25 @@ export class ArticleService {
     const baseSlug = slugify(title);
     const slug = await this.generateUniqueSlug(baseSlug);
 
+    // ✅ SÉCURITÉ: Nettoyage du contenu HTML pour éviter les attaques XSS
+    const sanitizedContent = sanitizeHtml(content, {
+      allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'h1', 'h2']), // Autoriser les tags utiles
+      allowedAttributes: {
+        ...sanitizeHtml.defaults.allowedAttributes,
+        img: ['src', 'alt', 'width', 'height'],
+      },
+    });
+
     // Calcul temps de lecture
     const readingTime =
       createArticleDto.readingTime ||
-      Math.ceil(content.split(' ').length / 200);
+      Math.ceil(sanitizedContent.split(' ').length / 200);
 
     // Génération excerpt automatique si non fourni
     let { excerpt } = createArticleDto;
     if (!excerpt) {
-      const plainText = content.replace(/<[^>]+>/g, ''); // Strip HTML
+      // On retire aussi les tags HTML pour l'excerpt
+      const plainText = sanitizedContent.replace(/<[^>]+>/g, ''); 
       excerpt =
         plainText.length > 150
           ? plainText.substring(0, 150).trim() + '...'
@@ -69,9 +93,10 @@ export class ArticleService {
           ...createArticleDto,
           organizationId,
           slug,
+          content: sanitizedContent, // ✅ On sauvegarde le contenu nettoyé
           readingTime,
           excerpt,
-          status: ArticleStatus.DRAFT, // Toujours créé en brouillon
+          status: ArticleStatus.DRAFT,
         },
         include: {
           organization: { select: { id: true, name: true, logo: true } },
@@ -80,7 +105,7 @@ export class ArticleService {
       });
 
       this.logger.log(`Article créé : ${article.id} par ${organizationId}`);
-      return new ArticleEntity(article); // ✅ Correction: Retour direct ou transformArticleData
+      return new ArticleEntity(article);
     } catch (error) {
       this.logger.error(`Erreur création article : ${error.message}`);
       throw new BadRequestException("Erreur lors de la création de l'article");
@@ -88,86 +113,103 @@ export class ArticleService {
   }
 
   // =====================================
-  // 📋 LISTE PUBLIQUE (CORRIGÉE ET STABLE)
+  // 📋 LISTE PUBLIQUE (OPTIMISÉE)
   // =====================================
-  async findAll(query: QueryArticleDto) {
-    const { page = 1, limit = 20, categoryId, organizationId, search, featured } = query;
-    const skip = (page - 1) * limit;
+  // =====================================
+  // 📋 LISTE PUBLIQUE (OPTIMISÉE + FIX)
+  // =====================================
+async findAll(query: QueryArticleDto) {
+  const { page = 1, limit = 20, categoryId, organizationId, search } = query;
+  const skip = (page - 1) * limit;
 
-    // Tableau des conditions "ET" (Doivent toutes être vraies)
-    // On initialise avec le statut PUBLISHED
-    const mustMatch: any[] = [{ status: ArticleStatus.PUBLISHED }];
+  // ✅ 1. Déclaration de la variable manquante (Gestion propre du boolean)
+  const isFeaturedFilter = query.featured === true || (query.featured as any) === 'true';
 
-    // Filtres spécifiques (AND)
-    if (categoryId) mustMatch.push({ categoryId });
-    if (organizationId) mustMatch.push({ organizationId });
-    if (featured !== undefined) mustMatch.push({ isFeatured: featured });
+  let articles: any[] = [];
+  let total = 0;
 
-    // Tableau des conditions "OU" (Au moins une doit être vraie)
-    const anyMatch: any[] = [];
+  if (search) {
+      const searchQuery = search.trim().split(/\s+/).join(' & ');
+      
+      // ✅ 1. Filtre pour isFeatured
+      const featuredSql = query.featured !== undefined 
+        ? Prisma.sql`AND a."isFeatured" = ${isFeaturedFilter}` 
+        : Prisma.empty;
 
-    if (search) {
-      anyMatch.push(
-        { title: { contains: search, mode: 'insensitive' } },
-        { content: { contains: search, mode: 'insensitive' } },
-        { excerpt: { contains: search, mode: 'insensitive' } },
-      );
+      // ✅ 2. CORRECTION DES NOMS DE TABLES (Article -> articles, Organization -> organizations, Category -> categories)
+      articles = await this.prisma.$queryRaw<any[]>`
+        SELECT 
+          a."id", a."title", a."slug", a."content", a."excerpt", 
+          a."featuredImage", a."thumbnailImage", a."author", a."readingTime", a."tags",
+          a."viewsCount", a."sharesCount", a."commentsCount", a."reactionsCount",
+          a."isFeatured", a."publishedAt", a."status",
+          a."organizationId", a."categoryId",
+          o."id" as "organizationId", o."name" as "organizationName", o."logo" as "organizationLogo",
+          c."id" as "categoryId", c."name" as "categoryName", c."slug" as "categorySlug"
+        FROM "articles" a  
+        LEFT JOIN "organizations" o ON o.id = a."organizationId"
+        LEFT JOIN "categories" c ON c.id = a."categoryId"
+        WHERE a."status" = 'PUBLISHED'
+          AND (
+            to_tsvector('french', a."title" || ' ' || coalesce(a."excerpt",'')) @@ to_tsquery('french', ${searchQuery})
+            OR a."title" ILIKE ${`%${search}%`}
+          )
+          ${featuredSql}
+          ${categoryId ? Prisma.sql`AND a."categoryId" = ${categoryId}` : Prisma.empty}
+        ORDER BY a."isFeatured" DESC, a."publishedAt" DESC
+        LIMIT ${limit} OFFSET ${skip};
+      `;
+
+      const countRes = await this.prisma.$queryRaw<any[]>`
+        SELECT COUNT(*)::int as count 
+        FROM "articles" a  -- ✅ CORRECTION ICI
+        WHERE a."status"='PUBLISHED' 
+          AND (
+            to_tsvector('french', a."title" || ' ' || coalesce(a."excerpt",'')) @@ to_tsquery('french', ${searchQuery})
+            OR a."title" ILIKE ${`%${search}%`}
+          )
+      `;
+      total = countRes[0]?.count || 0;
+    } else {
+    // Mode sans recherche (Prisma natif)
+    const where: any = { status: ArticleStatus.PUBLISHED };
+    if (categoryId) where.categoryId = categoryId;
+    if (organizationId) where.organizationId = organizationId;
+    
+    // ✅ 3. Application sécurisée du filtre boolean
+    if (query.featured !== undefined) {
+      where.isFeatured = isFeaturedFilter;
     }
 
-    // Assemblage final de la clause WHERE
-    const where: any = {
-      AND: mustMatch.length > 0 ? mustMatch : undefined,
-      OR: anyMatch.length > 0 ? anyMatch : undefined,
-    };
-
-    const [articles, total] = await Promise.all([
+    [articles, total] = await Promise.all([
       this.prisma.article.findMany({
         where,
         skip,
         take: limit,
         orderBy: [{ isFeatured: 'desc' }, { publishedAt: 'desc' }],
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          excerpt: true,
-          featuredImage: true,
-          thumbnailImage: true,
-          author: true,
-          readingTime: true,
-          tags: true,
-          viewsCount: true,
-          sharesCount: true,
-          commentsCount: true,
-          reactionsCount: true,
-          isFeatured: true,
-          publishedAt: true,
-          organization: {
-            select: { id: true, name: true, logo: true }, // ✅ Supprimé city ici
-          },
-          category: {
-            select: { id: true, name: true, slug: true },
-          },
+        include: {
+          organization: { select: { id: true, name: true, logo: true } },
+          category: { select: { id: true, name: true, slug: true } },
         },
       }),
       this.prisma.article.count({ where }),
     ]);
-
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data: articles.map((a) => new ArticleEntity(this.transformArticleData(a))),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: page > 1,
-      },
-    };
   }
 
+  // Enrichissement avec les vues Redis
+  const enriched = await Promise.all(
+    articles.map(async (a) => ({
+      ...a,
+      viewsCount: (a.viewsCount || 0) + (await this.getCachedViews(a.id)),
+    })),
+  );
+
+  const totalPages = Math.ceil(total / limit);
+  return {
+    data: enriched.map(a => new ArticleEntity(this.transformArticleData(a))),
+    meta: { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 },
+  };
+}
   // =====================================
   // 👤 MES ARTICLES (PRIVÉ)
   // =====================================
@@ -180,6 +222,7 @@ export class ArticleService {
     if (status) mustMatch.push({ status });
 
     const anyMatch: any[] = [];
+    // Ici on peut chercher dans le contenu pour l'auteur car il a moins d'articles
     if (search) {
       anyMatch.push(
         { title: { contains: search, mode: 'insensitive' } },
@@ -193,7 +236,6 @@ export class ArticleService {
       OR: anyMatch.length > 0 ? anyMatch : undefined,
     };
 
-    // Filtre par tags s'ajoute ici (AND)
     if (tags && tags.length > 0) {
       where.AND.push({ tags: { hasSome: tags } });
     }
@@ -229,73 +271,34 @@ export class ArticleService {
   // =====================================
   // 🔍 DÉTAILS D'UN ARTICLE (LECTURE PURE - GET)
   // =====================================
-  // ✅ BONNE PRATIQUE : Méthode dédiée à la lecture (GET), ne modifie pas les données
   async findOne(idOrSlug: string): Promise<ArticleEntity> {
     const article = await this.prisma.article.findFirst({
-      where: {
-        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-        status: ArticleStatus.PUBLISHED,
-      },
-      include: {
-        organization: {
-          select: { id: true, name: true, logo: true, phone: true },
-        },
-        category: { select: { id: true, name: true, slug: true } },
-      },
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }], status: ArticleStatus.PUBLISHED },
+      include: { organization: { select: { id: true, name: true, logo: true } }, category: { select: { id: true, name: true, slug: true } } },
     });
+    if (!article) throw new NotFoundException('Article non trouvé');
 
-    if (!article) {
-      throw new NotFoundException('Article non trouvé');
-    }
-
-    return new ArticleEntity(this.transformArticleData(article));
+    const cachedViews = await this.getCachedViews(article.id);
+    return new ArticleEntity(this.transformArticleData({ ...article, viewsCount: article.viewsCount + cachedViews }));
   }
 
-  // =====================================
-  // 👁 INCRÉMENTER LES VUES (ÉCRITURE - PATCH)
-  // =====================================
-  // ✅ NOUVEAU : Méthode explicite pour gérer les vues (Best Practice)
+
+  // ===============================
+  // INCREMENTER VUES
+  // ===============================
   async viewArticle(idOrSlug: string): Promise<ArticleEntity> {
-    // 1. Vérifier que l'article existe
-    const article = await this.prisma.article.findFirst({
-      where: {
-        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-        status: ArticleStatus.PUBLISHED,
-      },
-    });
+    const article = await this.prisma.article.findFirst({ where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }], status: ArticleStatus.PUBLISHED } });
+    if (!article) throw new NotFoundException('Article non trouvé');
+    this.incrementViewInCache(article.id).catch(err => this.logger.error(err.message));
 
-    if (!article) {
-      throw new NotFoundException('Article non trouvé');
-    }
-
-    // 2. Incrémenter le compteur de vues
-    try {
-      await this.prisma.article.update({
-        where: { id: article.id },
-        data: { viewsCount: { increment: 1 } },
-      });
-    } catch (error) {
-      this.logger.error(`Erreur incrémentation vue: ${error.message}`);
-    }
-
-    // 3. Récupérer et retourner l'objet mis à jour (pour que le Frontend ait le bon nombre de vues)
-    const updatedArticle = await this.prisma.article.findFirst({
-      where: { id: article.id },
-      include: {
-        organization: {
-          select: { id: true, name: true, logo: true, phone: true },
-        },
-        category: { select: { id: true, name: true, slug: true } },
-      },
-    });
-
-    return new ArticleEntity(this.transformArticleData(updatedArticle));
+    const cachedViews = await this.getCachedViews(article.id);
+    return new ArticleEntity(this.transformArticleData({ ...article, viewsCount: article.viewsCount + cachedViews }));
   }
+
 
   // =====================================
   // ✏️ METTRE À JOUR UN ARTICLE (BROUILLON)
   // =====================================
-  // Note: Pas de gestion de compteurs ici car on est en brouillon
   async update(
     id: string,
     updateArticleDto: UpdateArticleDto,
@@ -309,13 +312,23 @@ export class ArticleService {
       throw new NotFoundException('Article non trouvé ou accès refusé');
     }
 
+    // ✅ FIABILITÉ: Empêcher la modification d'un article publié (sauf si logique d'archive gérée ailleurs)
+    // Ici on suit la logique stricte : impossible de modifier un article publié
     if (article.status === ArticleStatus.PUBLISHED) {
       throw new ForbiddenException(
         "Impossible de modifier un article publié. Archivez-le d'abord.",
       );
     }
 
-    // Slug
+    // ✅ SÉCURITÉ & SEO: Sanitization du contenu si fourni
+    if (updateArticleDto.content) {
+        updateArticleDto.content = sanitizeHtml(updateArticleDto.content, {
+            allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'h1', 'h2']),
+            allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, img: ['src', 'alt'] },
+        });
+    }
+
+    // ✅ SEO: Régénération Slug (Seulement si brouillon, protégé par le check PUBLISHED ci-dessus)
     if (
       updateArticleDto.title &&
       updateArticleDto.title !== article.title
@@ -358,7 +371,6 @@ export class ArticleService {
     id: string,
     organizationId: string,
   ): Promise<{ message: string }> {
-    // 1. Récupérer l'article (pour avoir categoryId et status actuel)
     const article = await this.prisma.article.findFirst({
       where: { id, organizationId },
       include: { category: { select: { id: true } } },
@@ -369,15 +381,12 @@ export class ArticleService {
     }
 
     try {
-      // 2. Transaction Atomique
       await this.prisma.$transaction(async (tx) => {
-        // A. Marquer l'article comme supprimé
         await tx.article.update({
           where: { id },
           data: { status: ArticleStatus.DELETED, deletedAt: new Date() },
         });
 
-        // B. Si l'article était PUBLIÉ, on décrémente le compteur de la catégorie
         if (article.status === ArticleStatus.PUBLISHED) {
           await tx.category.update({
             where: { id: article.categoryId },
@@ -395,7 +404,7 @@ export class ArticleService {
   }
 
   // =====================================
-  // 📢 PUBLIER UN ARTICLE (STATUS CHANGE + COMPTEURS)
+  // 📢 PUBLIER UN ARTICLE
   // =====================================
   async publish(
     id: string,
@@ -412,9 +421,7 @@ export class ArticleService {
     }
 
     try {
-      // 1. Transaction Atomique
-      const publishedArticle = await this.prisma.$transaction(async (tx) => {
-        // A. Mettre à jour l'article (DRAFT -> PUBLISHED)
+      await this.prisma.$transaction(async (tx) => {
         const updated = await tx.article.update({
           where: { id },
           data: {
@@ -423,18 +430,16 @@ export class ArticleService {
           },
         });
 
-        // B. Incrémenter le compteur de la catégorie
         await tx.category.update({
           where: { id: updated.categoryId },
           data: { articlesCount: { increment: 1 } },
         });
 
-        return updated; // On renvoie l'objet mis à jour
+        return updated;
       });
 
       this.logger.log(`Article publié : ${id}`);
 
-      // 2. Relire l'article avec les relations pour le renvoyer au client
       const withRelations = await this.prisma.article.findUnique({
         where: { id },
         include: {
@@ -486,42 +491,82 @@ export class ArticleService {
     }
   }
 
-  // =====================================
-  // 🔧 UTILITAIRES PRIVÉS
-  // =====================================
+  // ===============================
+  // REDIS VIEWS
+  // ===============================
+private async incrementViewInCache(articleId: string) {
+  const key = `${this.VIEWS_CACHE_PREFIX}${articleId}`;
+  let count = (await this.cacheManager.get<number>(key)) || 0;
+  count++;
+
+  // Correct pour ta version : TTL en secondes passé comme second param
+  await this.cacheManager.set(key, count, 86400); // 24h
+
+  if (count >= this.VIEWS_BATCH_THRESHOLD) {
+    await this.syncViewsToDatabase(articleId, count);
+  }
+}
+
+
+  private async getCachedViews(articleId: string) {
+    const key = `${this.VIEWS_CACHE_PREFIX}${articleId}`;
+    return (await this.cacheManager.get<number>(key)) || 0;
+  }
+
+  private async syncViewsToDatabase(articleId: string, count: number) {
+    await this.prisma.article.update({ where: { id: articleId }, data: { viewsCount: { increment: count } } });
+    await this.cacheManager.del(`${this.VIEWS_CACHE_PREFIX}${articleId}`);
+    this.logger.log(`✅ ${count} vues synchronisées pour ${articleId}`);
+  }
+@Cron(CronExpression.EVERY_HOUR)
+async syncAllViewsToDatabase() {
+  this.logger.log('🔄 Synchronisation CRON des vues articles');
+  const store = this.cacheManager as any;
+  const keysMethod = store.keys || (store.store && store.store.keys);
+
+  if (!keysMethod) return;
+
+  const keys: string[] = await keysMethod(`${this.VIEWS_CACHE_PREFIX}*`);
+    for (const key of keys) {
+      const articleId = key.replace(this.VIEWS_CACHE_PREFIX, '');
+      const cachedCount = await this.getCachedViews(articleId);
+      if (cachedCount > 0) await this.syncViewsToDatabase(articleId, cachedCount);
+    }
+  }
+
+  // ===============================
+  // UTILITAIRES
+  // ===============================
   private async generateUniqueSlug(baseSlug: string): Promise<string> {
     let slug = baseSlug;
     let suffix = 1;
-
     while (await this.prisma.article.findUnique({ where: { slug } })) {
-      slug = `${baseSlug}-${suffix}`;
-      suffix++;
+      slug = `${baseSlug}-${suffix++}`;
     }
-
     return slug;
   }
 
-  /**
-   * Transforme les données de Prisma pour les rendre compatibles avec l'entité
-   */
-  private transformArticleData(article: any): any {
-    const transformed = { ...article };
-    const nullableFields = [
-      'slug',
-      'excerpt',
-      'thumbnailImage',
-      'author',
-      'readingTime',
-      'publishedAt',
-      'deletedAt',
-    ];
-
-    nullableFields.forEach((field) => {
-      if (transformed[field] === null) {
-        transformed[field] = undefined;
-      }
-    });
-
-    return transformed;
+private transformArticleData(article: any) {
+  // Si les données viennent du SQL brut (flattened)
+  if (article.organizationName) {
+    article.organization = {
+      id: article.organizationId,
+      name: article.organizationName,
+      logo: article.organizationLogo,
+    };
+    article.category = {
+      id: article.categoryId,
+      name: article.categoryName,
+      slug: article.categorySlug,
+    };
   }
+
+  // Gestion des nulls pour éviter les crashs Entity
+  const nullable = ['slug', 'excerpt', 'thumbnailImage', 'author', 'readingTime', 'publishedAt'];
+  nullable.forEach(f => {
+    if (article[f] === null) article[f] = undefined;
+  });
+
+  return article;
+}
 }

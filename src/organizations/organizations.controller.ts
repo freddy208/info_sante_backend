@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 // src/organizations/organizations.controller.ts
 
 import {
@@ -41,6 +42,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { OrganizationType, OrganizationStatus } from '@prisma/client';
 import { JwtOrganizationAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { Request } from 'express';
+import { SearchOrganizationsDto } from './dto/search-organizations.dto';
 
 /**
  * 🏥 ORGANIZATIONS CONTROLLER
@@ -450,6 +452,14 @@ export class OrganizationsController {
     `,
   })
   @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    type: String,
+    description: 'Critère de tri (name, rating)',
+    enum: ['name', 'rating'], // 'distance' n'est pas listé car non supporté sans GPS ici
+    example: 'rating',
+  })
+  @ApiQuery({
     name: 'page',
     required: false,
     type: Number,
@@ -756,5 +766,39 @@ export class OrganizationsController {
     @Param('id') memberId: string,
   ) {
     return this.organizationsService.removeMember(organizationId, memberId);
+  }
+
+  @Public()
+  @Get('search')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Recherche avancée des organisations (Full-Text)',
+    description: `
+    Recherche performante des organisations avec PostgreSQL Full-Text Search (tsvector)
+    et cache Redis.
+
+    **Fonctionnalités :**
+    - Recherche textuelle avancée (nom, description)
+    - Classement par pertinence (rank)
+    - Filtres ville / région
+    - Cache Redis (5 minutes)
+
+    **Exemples :**
+    - /organizations/search?q=hôpital
+    - /organizations/search?q=clinique&city=Douala
+    - /organizations/search?q=laquintinie&page=2
+  `,
+  })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'city', required: false, type: String })
+  @ApiQuery({ name: 'region', required: false, type: String })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Résultats de recherche',
+  })
+  async searchOrganizations(@Query() query: SearchOrganizationsDto) {
+    return this.organizationsService.searchOrganizations(query);
   }
 }

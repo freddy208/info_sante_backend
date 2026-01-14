@@ -1,11 +1,12 @@
-// src/auth/strategies/jwt-organization.strategy.ts
-
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayloadData } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from 'prisma/prisma.service';
+import { REDIS_CLIENT } from 'src/redis/redis.module';
+import Redis from 'ioredis';
 
 @Injectable()
 export class JwtOrganizationStrategy extends PassportStrategy(
@@ -13,24 +14,29 @@ export class JwtOrganizationStrategy extends PassportStrategy(
   'jwt-organization',
 ) {
   constructor(
-    private configService: ConfigService,
-    private prisma: PrismaService,
+    private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    config: ConfigService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey: configService.get<string>('jwt.secret')!,
+      secretOrKey: config.get<string>('jwt.secret')!,
     });
   }
 
   async validate(payload: JwtPayloadData) {
-    // Vérifier que c'est bien un token d'accès
     if (payload.type !== 'access') {
-      throw new UnauthorizedException('Type de token invalide');
+      throw new UnauthorizedException();
     }
 
-    // Récupérer l'organisation depuis la base de données
-    const organization = await this.prisma.organization.findUnique({
+    const key = `org:${payload.sub}`;
+
+    const cached = await this.redis.get(key);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const org = await this.prisma.organization.findUnique({
       where: { id: payload.sub },
       select: {
         id: true,
@@ -42,20 +48,12 @@ export class JwtOrganizationStrategy extends PassportStrategy(
       },
     });
 
-    // Vérifier que l'organisation existe
-    if (!organization) {
-      throw new UnauthorizedException('Organisation non trouvée');
+    if (!org || org.status !== 'ACTIVE') {
+      throw new UnauthorizedException();
     }
 
-    // Vérifier que le compte est actif
-    if (organization.status !== 'ACTIVE') {
-      throw new UnauthorizedException('Compte désactivé');
-    }
+    await this.redis.set(key, JSON.stringify(org), 'EX', 300);
 
-    // Retourner l'organisation avec la propriété sub pour le décorateur @CurrentUser
-    return {
-      ...organization,
-      sub: payload.sub, // Ajouter explicitement la propriété sub
-    };
+    return org;
   }
 }

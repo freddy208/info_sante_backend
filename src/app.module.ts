@@ -45,6 +45,12 @@ import { BookmarkModule } from './bookmark/bookmark.module';
 import { NotificationModule } from './notification/notification.module';
 import { AdviceModule } from './advice/advice.module';
 import { PublicModule } from './public/public.module';
+import { MailService } from './mail/mail.service';
+import { MailController } from './mail/mail.controller';
+import { MailModule } from './mail/mail.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { RedisModule } from './redis/redis.module';
+import { UserPreferenceModule } from './user-preference/user-preference.module';
 
 /**
  * 🏠 APP MODULE - MODULE RACINE
@@ -60,6 +66,32 @@ import { PublicModule } from './public/public.module';
  */
 @Module({
   imports: [
+    RedisModule,
+    ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          name: 'public_list',
+          limit: 60,
+          ttl: 60,
+        },
+        {
+          name: 'public_detail',
+          limit: 100,
+          ttl: 60,
+        },
+        {
+          name: 'auth_medium',
+          limit: 100,
+          ttl: 60,
+        },
+        {
+          name: 'auth_sensitive',
+          limit: 5,
+          ttl: 60,
+        },
+      ],
+    }),
     // =====================================
     // 🔧 CONFIGURATION GLOBALE
     // =====================================
@@ -101,9 +133,12 @@ import { PublicModule } from './public/public.module';
     NotificationModule,
     AdviceModule,
     PublicModule,
+    MailModule,
+    RedisModule,
+    UserPreferenceModule,
   ],
 
-  controllers: [AppController],
+  controllers: [AppController, MailController],
 
   providers: [
     AppService,
@@ -162,6 +197,8 @@ import { PublicModule } from './public/public.module';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+
+    MailService,
 
     // Note : JwtAuthGuard et RolesGuard seront ajoutés
     // après avoir créé le module Auth

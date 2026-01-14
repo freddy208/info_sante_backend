@@ -1,40 +1,38 @@
 // src/auth/strategies/jwt.strategy.ts
-
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayloadData } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from 'prisma/prisma.service';
-
-/**
- * 🔑 JWT STRATEGY
- *
- * Valide le JWT access token et récupère l'utilisateur.
- */
+import { REDIS_CLIENT } from 'src/redis/redis.module';
+import Redis from 'ioredis';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
-    private configService: ConfigService,
-    private prisma: PrismaService,
+    private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    config: ConfigService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey: configService.get<string>('jwt.secret')!,
+      secretOrKey: config.get<string>('jwt.secret')!,
     });
   }
 
-  /**
-   * Méthode appelée automatiquement après vérification du token
-   */
   async validate(payload: JwtPayloadData) {
-    // Vérifier que c'est bien un access token
     if (payload.type !== 'access') {
-      throw new UnauthorizedException('Type de token invalide');
+      throw new UnauthorizedException();
     }
 
-    // Récupérer l'utilisateur depuis la base de données
+    const key = `user:${payload.sub}`;
+
+    const cached = await this.redis.get(key);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -44,22 +42,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         lastName: true,
         phone: true,
         avatar: true,
-        status: true, // ✅ ENUM UserStatus
+        status: true,
+        city: true,
+        region: true,
       },
     });
 
-    // Vérifier que l'utilisateur existe
-    if (!user) {
-      throw new UnauthorizedException('Utilisateur non trouvé');
+    if (!user || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException();
     }
 
-    // Vérifier que le compte est actif
-    if (user.status !== 'ACTIVE') {
-      // ✅ Comparaison correcte avec l'enum
-      throw new UnauthorizedException('Compte désactivé');
-    }
+    await this.redis.set(key, JSON.stringify(user), 'EX', 300);
 
-    // Retourner l'utilisateur (sera attaché à request.user)
     return user;
   }
 }

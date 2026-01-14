@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-floating-promises */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -6,6 +8,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   // 1. Créer l'application NestJS
@@ -13,20 +16,28 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'], // Logs détaillés en dev
   });
 
+  app.use(cookieParser()); // ✅ OBLIGATOIRE
+
   // 2. Récupérer le service de configuration
   const configService = app.get(ConfigService);
 
-  // 3. Activer CORS (obligatoire pour PWA frontend)
-  const corsOrigins = configService.get('CORS_ORIGINS')?.split(',') || [
-    'http://localhost:3000',
-  ];
+  // ==========================================
+  // ✅ CORRECTION CORS : Configuration Unique et Complète
+  // ==========================================
+  // On fusionne les deux configurations précédentes en une seule robuste.
+  // On inclut localhost et 127.0.0.1 pour éviter les blocages de cookies.
   app.enableCors({
-    origin: corsOrigins, // Domaines autorisés
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], // Méthodes HTTP autorisées
-    credentials: true, // Autoriser cookies/sessions
-    allowedHeaders: ['Content-Type', 'Authorization'], // Headers autorisés
+    origin: [
+      'http://localhost:3000', // Frontend principal
+      'http://localhost:3001', // Au cas où
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+      // Ajoutez votre URL en production ici si besoin (ex: https://votre-site.com)
+    ],
+    credentials: true, // <--- INDISPENSABLE pour que le navigateur envoie le Cookie de Refresh
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], // <--- Ajouté DELETE et OPTIONS
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
-
   // 4. Ajouter préfixe global aux routes API
   const apiPrefix = configService.get('API_PREFIX') || 'api/v1';
   app.setGlobalPrefix(apiPrefix);

@@ -66,7 +66,7 @@ export class ReactionController {
   })
   async create(
     @Body() createReactionDto: CreateReactionDto,
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
   ) {
     return this.reactionService.create(createReactionDto, userId);
   }

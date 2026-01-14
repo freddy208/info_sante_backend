@@ -1,215 +1,210 @@
-/* eslint-disable @typescript-eslint/await-thenable */
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import * as cacheManager_1 from 'cache-manager';
 import { PrismaService } from 'prisma/prisma.service';
 import { NearbyQueryDto, SearchQueryDto } from './dto/public-query.dto';
 import { PublicOrganizationEntity } from './entities/public-organization.entity';
 import { PublicAlertEntity } from './entities/public-alert.entity';
 import {
+  PublicAlertLevel,
+  PublicAlertType,
+} from './entities/public-alert.entity';
+
+import {
+  Prisma,
   Priority,
   AnnouncementStatus,
   OrganizationStatus,
-  ArticleStatus,
-  Prisma,
-  OrganizationType, // Importer l'enum pour la sécurité de type
 } from '@prisma/client';
 
 @Injectable()
 export class PublicService {
   private readonly logger = new Logger(PublicService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: cacheManager_1.Cache,
+  ) {}
 
   // ==========================================
-  // UTILITAIRE : NORMALISATION
+  // UTILITAIRE : NORMALISATION TEXTE
   // ==========================================
   private normalizeText(text: string): string {
     return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }
 
   // ==========================================
-  // 1. ALERTES (Inchangé)
+  // 1. ALERTES SANITAIRES (CACHE 5min)
   // ==========================================
   async getAlerts(): Promise<PublicAlertEntity[]> {
+    const cacheKey = 'v1:public:alerts';
+    const cached = await this.cacheManager.get<PublicAlertEntity[]>(cacheKey);
+    if (cached) return cached;
+
     const announcements = await this.prisma.announcement.findMany({
       where: {
         status: AnnouncementStatus.PUBLISHED,
         priority: { in: [Priority.HIGH, Priority.URGENT] },
         targetAudience: { has: 'ALL' },
       },
-      include: {
-        organization: { select: { name: true } },
-        location: true,
-      },
+      include: { organization: { select: { name: true } }, location: true },
       orderBy: { createdAt: 'desc' },
       take: 4,
     });
 
-    return announcements.map((a) => {
-      const level = a.priority === Priority.URGENT ? 'critical' : 'warning';
+    const result = announcements.map((a) => {
+      const level =
+        a.priority === Priority.URGENT
+          ? PublicAlertLevel.CRITICAL
+          : PublicAlertLevel.WARNING;
+
       return new PublicAlertEntity({
         id: a.id,
         title: a.title,
-        excerpt: a.excerpt || a.content.substring(0, 100) + '...',
-        level: level,
+        excerpt: a.excerpt ?? `${a.content.substring(0, 100)}...`,
+        level, // maintenant type-safe
         location: a.location?.city || a.organization?.name || 'National',
         date: this.formatDate(a.createdAt),
-        type: 'ANNOUNCEMENT',
-        slug: a.slug || undefined,
+        type: PublicAlertType.ANNOUNCEMENT, // aussi enum
+        slug: a.slug ?? undefined,
       });
     });
+
+    await this.cacheManager.set(cacheKey, result, 300); // 5 min
+    return result;
   }
 
   // ==========================================
-  // 2. NEARBY (FIX PRISMA CRASH)
+  // 2. STRUCTURES DE SANTÉ À PROXIMITÉ (CACHE GEO 5min)
   // ==========================================
   async getNearbyOrganizations(
     dto: NearbyQueryDto,
   ): Promise<PublicOrganizationEntity[]> {
-    // ✅ CORRECTION CRITIQUE : Force les types Number pour éviter les erreurs String de Prisma
-    // Cela évite l'erreur : "invalid digit found in string. Expected decimal String."
     const lat = Number(dto.lat);
     const lng = Number(dto.lng);
-    const radius = Number(dto.radius || 20);
-    const limit = Number(dto.limit || 50);
-    const types = dto.types;
+    const radius = Number(dto.radius ?? 20);
+    const limit = Number(dto.limit ?? 50);
+    const typesKey = dto.types?.sort().join(',') ?? 'all';
+    const cacheKey = `v1:geo:${lat.toFixed(3)}:${lng.toFixed(3)}:${radius}:${typesKey}:${limit}`;
 
-    const R = 6371;
-    // Maintenant le calcul est mathématique correct (Nombre + Nombre), pas String + String
-    const rLat = (radius / R) * (180 / Math.PI);
-    const rLng = rLat / Math.cos((lat * Math.PI) / 180);
+    const ORGANIZATION_TYPE_MAP: Record<string, string> = {
+      HOSPITAL_PUBLIC: 'HOSPITAL_PUBLIC',
+      HOSPITAL_PRIVATE: 'HOSPITAL_PRIVATE',
+      CLINIC: 'CLINIC',
+      HEALTH_CENTER: 'HEALTH_CENTER',
+      DISPENSARY: 'DISPENSARY',
+      NGO: 'NGO',
+    };
 
-    const minLat = lat - rLat;
-    const maxLat = lat + rLat;
-    const minLng = lng - rLng;
-    const maxLng = lng + rLng;
+    const cached =
+      await this.cacheManager.get<PublicOrganizationEntity[]>(cacheKey);
+    if (cached) return cached;
 
-    const organizations = await this.prisma.organization.findMany({
-      where: {
-        status: OrganizationStatus.ACTIVE,
-        latitude: { not: null, gte: minLat, lte: maxLat },
-        longitude: { not: null, gte: minLng, lte: maxLng },
+    // ✅ PostGIS + tsvector ready
+    const dbTypes =
+      dto.types?.map((t) => ORGANIZATION_TYPE_MAP[t]).filter(Boolean) ?? [];
 
-        // Gestion du filtre types
-        ...(types && types.length > 0
-          ? { type: { in: types as OrganizationType[] } }
-          : {}),
-      },
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        phone: true,
-        address: true,
-        city: true,
-        region: true,
-        latitude: true,
-        longitude: true,
-      },
-    });
+    const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
+  SELECT
+    id, name, type, phone, address, city, region, latitude, longitude,
+    ST_DistanceSphere(
+      ST_MakePoint(longitude::double precision, latitude::double precision),
+      ST_MakePoint(${lng}::double precision, ${lat}::double precision)
+    ) / 1000 AS distance
+  FROM organizations
+  WHERE status = 'ACTIVE'
+    AND latitude IS NOT NULL
+    AND longitude IS NOT NULL
+${
+  dbTypes.length
+    ? Prisma.sql`
+        AND type = ANY(
+          ARRAY[${Prisma.join(dbTypes.map(t => Prisma.sql`${t}::"OrganizationType"`))}]
+        )
+      `
+    : Prisma.empty
+}
 
-    const nearbyOrgs = organizations
-      .map((org) => {
-        const distance = this.calculateDistance(
-          lat,
-          lng,
-          Number(org.latitude),
-          Number(org.longitude),
-        );
-        return {
-          ...org,
-          latitude: Number(org.latitude),
-          longitude: Number(org.longitude),
-          distance,
-        };
-      })
-      .filter((org) => org.distance <= radius)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, limit);
+    AND ST_DWithin(
+      ST_MakePoint(longitude::double precision, latitude::double precision)::geography,
+      ST_MakePoint(${lng}::double precision, ${lat}::double precision)::geography,
+      ${radius * 1000}
+    )
+  ORDER BY distance
+  LIMIT ${limit};
+`);
 
-    return nearbyOrgs.map((org) => new PublicOrganizationEntity(org));
+    const result = rows.map(
+      (r) =>
+        new PublicOrganizationEntity({
+          ...r,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+          distance: Number(r.distance),
+        }),
+    );
+
+    await this.cacheManager.set(cacheKey, result, 300); // 5 min
+    return result;
   }
 
   // ==========================================
-  // 3. RECHERCHE INTELLIGENTE (Inchangé)
+  // 3. RECHERCHE FULL-TEXT (TSVECTOR + CACHE)
   // ==========================================
   async search(dto: SearchQueryDto) {
-    const { q, limit } = dto;
-    const query = q.trim();
-
-    const normalizedQuery = this.normalizeText(query);
-    const pattern = `%${normalizedQuery}%`;
-
+    const query = dto.q.trim();
     if (!query) return { data: [], suggestions: [] };
 
-    interface RawOrganization {
-      id: string;
-      name: string;
-      type: string;
-      phone: string;
-      address: string;
-      city: string;
-      region: string;
-      latitude: string;
-      longitude: string;
-    }
+    const cacheKey = `v1:search:${query.toLowerCase()}:${dto.limit}`;
+    const cached = await this.cacheManager.get(cacheKey);
+    if (cached) return cached;
 
-    interface RawContent {
-      id: string;
-      title: string;
-      excerpt: string;
-      slug: string;
-      publishedAt: Date;
-      status: string;
-    }
-
-    interface RawSuggestion {
-      name: string;
-    }
+    const limit = Number(dto.limit ?? 10);
+    const tsQuery = this.normalizeText(query);
 
     const [orgs, announcements, articles] = await Promise.all([
-      this.prisma.$queryRaw<RawOrganization[]>(
-        Prisma.sql`SELECT id, name, type, phone, address, city, region, latitude, longitude
-                     FROM organizations
-                     WHERE status = 'ACTIVE'
-                       AND (
-                         LOWER(unaccent(name)) LIKE LOWER(unaccent(${pattern}))
-                         OR LOWER(unaccent(city)) LIKE LOWER(unaccent(${pattern}))
-                       )
-                     LIMIT ${limit}`,
-      ),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`
+        SELECT id, name, type, phone, address, city, region, latitude, longitude
+        FROM organizations
+        WHERE status = 'ACTIVE'
+          AND search_vector @@ plainto_tsquery('french', unaccent(${tsQuery}))
+        ORDER BY ts_rank_cd(search_vector, plainto_tsquery('french', unaccent(${tsQuery}))) DESC
+        LIMIT ${limit};
+      `),
 
-      this.prisma.$queryRaw<RawContent[]>(
-        Prisma.sql`SELECT id, title, excerpt, slug, "publishedAt" as "publishedAt", status
-                     FROM announcements
-                     WHERE status = 'PUBLISHED'
-                       AND (
-                         LOWER(unaccent(title)) LIKE LOWER(unaccent(${pattern}))
-                         OR LOWER(unaccent(content)) LIKE LOWER(unaccent(${pattern}))
-                       )
-                     LIMIT ${limit}`,
-      ),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`
+        SELECT id, title, excerpt, slug, "publishedAt", status
+        FROM announcements
+        WHERE status = 'PUBLISHED'
+          AND search_vector @@ plainto_tsquery('french', unaccent(${tsQuery}))
+        ORDER BY ts_rank_cd(search_vector, plainto_tsquery('french', unaccent(${tsQuery}))) DESC
+        LIMIT ${limit};
+      `),
 
-      this.prisma.$queryRaw<RawContent[]>(
-        Prisma.sql`SELECT id, title, excerpt, slug, "publishedAt" as "publishedAt", status
-                     FROM articles
-                     WHERE status = 'PUBLISHED'
-                       AND (
-                         LOWER(unaccent(title)) LIKE LOWER(unaccent(${pattern}))
-                         OR LOWER(unaccent(content)) LIKE LOWER(unaccent(${pattern}))
-                       )
-                     LIMIT ${limit}`,
-      ),
+      this.prisma.$queryRaw<any[]>(Prisma.sql`
+        SELECT id, title, excerpt, slug, "publishedAt", status
+        FROM articles
+        WHERE status = 'PUBLISHED'
+          AND search_vector @@ plainto_tsquery('french', unaccent(${tsQuery}))
+        ORDER BY ts_rank_cd(search_vector, plainto_tsquery('french', unaccent(${tsQuery}))) DESC
+        LIMIT ${limit};
+      `),
     ]);
 
-    const results = [
+    const data = [
       ...orgs.map((o) => ({
         ...o,
         type: 'ORGANIZATION',
         relevance: 1,
-        latitude: parseFloat(o.latitude),
-        longitude: parseFloat(o.longitude),
+        latitude: Number(o.latitude),
+        longitude: Number(o.longitude),
       })),
       ...announcements.map((a) => ({
         ...a,
@@ -217,59 +212,34 @@ export class PublicService {
         relevance: 2,
       })),
       ...articles.map((a) => ({ ...a, type: 'ARTICLE', relevance: 3 })),
-    ];
+    ].slice(0, limit);
 
-    if (results.length === 0) {
-      this.logger.log(
-        `Aucun résultat pour "${query}", déclenchement du fallback.`,
-      );
-
-      const [categories, specialties] = await Promise.all([
-        this.prisma.$queryRaw<RawSuggestion[]>(
-          Prisma.sql`SELECT name FROM categories
-                       WHERE LOWER(unaccent(name)) LIKE LOWER(unaccent(${pattern}))
-                       LIMIT 5`,
-        ),
-
-        this.prisma.$queryRaw<RawSuggestion[]>(
-          Prisma.sql`SELECT name FROM specialties
-                       WHERE LOWER(unaccent(name)) LIKE LOWER(unaccent(${pattern}))
-                       LIMIT 5`,
-        ),
-      ]);
-
-      let suggestions: string[] = [];
-
-      if (categories.length > 0 || specialties.length > 0) {
-        suggestions = [
-          ...categories.map((c) => c.name),
-          ...specialties.map((s) => s.name),
-        ];
-      } else {
-        suggestions = [
-          'Urgences',
-          'Medecine Generale',
-          'Pediatrie',
-          'Pharmacie',
-        ];
-      }
-
-      return {
-        status: 'empty',
-        data: [],
-        suggestions: suggestions.slice(0, 5),
-      };
-    }
-
-    return {
+    const result = {
       status: 'success',
-      data: results.slice(0, limit),
+      data,
+      suggestions:
+        data.length === 0
+          ? [
+              'Choléra',
+              'Paludisme',
+              'Vaccination',
+              'Hôpital Central',
+              'Urgences',
+            ]
+          : [],
     };
+
+    await this.cacheManager.set(cacheKey, result, 60); // 1 min
+    return result;
   }
 
   // ==========================================
-  // UTILS (Inchangé)
+  // UTILITAIRES
   // ==========================================
+  private deg2rad(deg: number) {
+    return deg * (Math.PI / 180);
+  }
+
   private calculateDistance(
     lat1: number,
     lon1: number,
@@ -280,23 +250,15 @@ export class PublicService {
     const dLat = this.deg2rad(lat2 - lat1);
     const dLon = this.deg2rad(lon2 - lon1);
     const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLat / 2) ** 2 +
       Math.cos(this.deg2rad(lat1)) *
         Math.cos(this.deg2rad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  }
-
-  private deg2rad(deg: number) {
-    return deg * (Math.PI / 180);
+        Math.sin(dLon / 2) ** 2;
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
   }
 
   private formatDate(date: Date): string {
-    const now = new Date();
-    const diff = (now.getTime() - date.getTime()) / 1000;
-
+    const diff = (Date.now() - date.getTime()) / 1000;
     if (diff < 3600) return "Il y a moins d'une heure";
     if (diff < 86400) return "Aujourd'hui";
     if (diff < 172800) return 'Hier';

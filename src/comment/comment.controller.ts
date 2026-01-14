@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Controller,
@@ -26,6 +29,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { ContentType } from '@prisma/client';
+import { UnauthorizedException } from '@nestjs/common';
 
 @ApiTags('Comments')
 @Controller('comments')
@@ -43,8 +47,13 @@ export class CommentController {
   @ApiResponse({ status: 201, type: CommentEntity })
   async create(
     @Body() createCommentDto: CreateCommentDto,
-    @CurrentUser('sub') userId: string,
+    // ✅ CORRECTION ICI : Récupérer l'objet User complet
+    @CurrentUser('id') userId: string,
   ) {
+    if (!userId) {
+      // eslint-disable-next-line prettier/prettier
+      throw new UnauthorizedException('Session expirée ou utilisateur invalide');
+    }
     return this.commentService.create(createCommentDto, userId);
   }
 
@@ -118,8 +127,13 @@ export class CommentController {
   async update(
     @Param('id') id: string,
     @Body() updateCommentDto: UpdateCommentDto,
-    @CurrentUser('sub') userId: string,
+    // ✅ CORRECTION ICI
+    @CurrentUser() user: any,
   ) {
+    // ✅ CORRECTION ICI
+    const userId = user?.id;
+    if (!userId) throw new UnauthorizedException();
+
     return this.commentService.update(id, updateCommentDto, userId);
   }
 
@@ -136,7 +150,11 @@ export class CommentController {
     status: 200,
     schema: { example: { message: 'Commentaire supprimé avec succès' } },
   })
-  async remove(@Param('id') id: string, @CurrentUser('sub') userId: string) {
+  async remove(@Param('id') id: string, @CurrentUser() user: any) {
+    // ✅ CORRECTION ICI
+    const userId = user?.id;
+    if (!userId) throw new UnauthorizedException();
+
     return this.commentService.remove(id, userId);
   }
 }

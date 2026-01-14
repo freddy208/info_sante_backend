@@ -16,6 +16,7 @@ import {
   ContentType,
   AnnouncementStatus,
   ArticleStatus,
+  AdviceStatus,
 } from '@prisma/client';
 
 @Injectable()
@@ -34,36 +35,42 @@ export class CommentService {
     const { contentType, contentId, parentCommentId, content } =
       createCommentDto;
 
-    // Vérifier que le contenu existe et est publié
+    // 1. Sécurité : Vérifier si l'userId est bien présent
+    if (!userId) {
+      throw new BadRequestException("L'identifiant utilisateur est manquant.");
+    }
+
+    // 2. Valider que le contenu cible existe
     await this.validateContentExists(contentType, contentId);
 
-    // Si c'est une réponse, vérifier que le commentaire parent existe
+    // 3. Préparer l'objet de données avec les relations Prisma (connect)
+    const data: any = {
+      content,
+      contentType,
+      contentId,
+      // On utilise "connect" pour lier l'utilisateur par son ID
+      user: { connect: { id: userId } },
+    };
+
+    // ✅ Gestion du parent (réponse à un commentaire)
     if (parentCommentId) {
-      const parentComment = await this.prisma.comment.findUnique({
-        where: { id: parentCommentId },
-      });
+      data.parentComment = { connect: { id: parentCommentId } };
+    }
 
-      if (!parentComment) {
-        throw new NotFoundException('Commentaire parent non trouvé');
-      }
-
-      if (parentComment.status !== CommentStatus.VISIBLE) {
-        throw new BadRequestException(
-          'Impossible de répondre à un commentaire masqué ou supprimé',
-        );
-      }
+    // ✅ Liaison à la table spécifique (Announcement ou Article)
+    // ... après Article
+    if (contentType === ContentType.ANNOUNCEMENT) {
+      data.announcement = { connect: { id: contentId } };
+    } else if (contentType === ContentType.ARTICLE) {
+      data.article = { connect: { id: contentId } };
+    } else if (contentType === ContentType.ADVICE) {
+      // ✅ Ajout pour Advice
+      data.advice = { connect: { id: contentId } };
     }
 
     try {
       const comment = await this.prisma.comment.create({
-        data: {
-          userId,
-          contentType,
-          contentId,
-          parentCommentId,
-          content,
-          status: CommentStatus.VISIBLE,
-        },
+        data,
         include: {
           user: {
             select: { id: true, firstName: true, lastName: true, avatar: true },
@@ -71,10 +78,9 @@ export class CommentService {
         },
       });
 
-      // Incrémenter le compteur de commentaires sur le contenu
+      // 4. Incrémenter les compteurs
       await this.incrementCommentCount(contentType, contentId);
 
-      // Si c'est une réponse, incrémenter le compteur de réponses du parent
       if (parentCommentId) {
         await this.prisma.comment.update({
           where: { id: parentCommentId },
@@ -82,7 +88,6 @@ export class CommentService {
         });
       }
 
-      this.logger.log(`Commentaire créé : ${comment.id} par ${userId}`);
       return new CommentEntity(this.transformCommentData(comment));
     } catch (error) {
       this.logger.error(`Erreur création commentaire : ${error.message}`);
@@ -371,6 +376,12 @@ export class CommentService {
           where: { id: contentId, status: ArticleStatus.PUBLISHED },
         });
         break;
+      case ContentType.ADVICE:
+        // ✅ Ajout pour Advice
+        content = await this.prisma.advice.findUnique({
+          where: { id: contentId, status: AdviceStatus.PUBLISHED },
+        });
+        break;
       default:
         throw new BadRequestException(
           'Type de contenu non supporté pour les commentaires',
@@ -402,6 +413,13 @@ export class CommentService {
           data: { commentsCount: { increment: 1 } },
         });
         break;
+      case ContentType.ADVICE:
+        // ✅ Si vous avez ajouté le champ commentsCount dans le modèle Advice
+        await this.prisma.advice.update({
+          where: { id: contentId },
+          data: { commentsCount: { increment: 1 } },
+        });
+        break;
     }
   }
 
@@ -421,6 +439,12 @@ export class CommentService {
         break;
       case ContentType.ARTICLE:
         await this.prisma.article.update({
+          where: { id: contentId },
+          data: { commentsCount: { decrement: 1 } },
+        });
+        break;
+      case ContentType.ADVICE:
+        await this.prisma.advice.update({
           where: { id: contentId },
           data: { commentsCount: { decrement: 1 } },
         });

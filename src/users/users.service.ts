@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 // src/users/users.service.ts
@@ -17,6 +18,7 @@ import { UserEntity } from './entities/user.entity';
 import { UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'prisma/prisma.service';
+import { RedisService } from 'src/redis/redis.service';
 
 /**
  * 👥 USERS SERVICE
@@ -32,50 +34,44 @@ import { PrismaService } from 'prisma/prisma.service';
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private redisService: RedisService,
+  ) {}
 
-  // =====================================
-  // 📋 LISTE DES UTILISATEURS (ADMIN)
-  // =====================================
+  private async getCache(key: string) {
+    const client = this.redisService.getClient();
+    const data = await client.get(key);
+    return data ? JSON.parse(data) : null;
+  }
 
-  /**
-   * Récupérer la liste des utilisateurs avec pagination
-   *
-   * 🤔 POURQUOI LA PAGINATION ?
-   * Si vous avez 10 000 utilisateurs, vous ne pouvez pas tous les charger d'un coup.
-   * La pagination permet de charger par "pages" (ex: 10, 20, 50 utilisateurs à la fois).
-   *
-   * @param page - Numéro de la page (commence à 1)
-   * @param limit - Nombre d'utilisateurs par page
-   * @param status - Filtrer par statut (optionnel)
-   * @param search - Rechercher par email, nom (optionnel)
-   */
+  private async setCache(key: string, value: any, ttl = 300) {
+    const client = this.redisService.getClient();
+    await client.set(key, JSON.stringify(value), 'EX', ttl); // TTL = 5min par défaut
+  }
+
+  // =====================
+  // LISTE UTILISATEURS (ADMIN)
+  // =====================
   async findAll(
     page: number = 1,
     limit: number = 10,
     status?: UserStatus,
     search?: string,
   ) {
-    // ✅ Validation des paramètres
-    if (page < 1) page = 1;
-    if (limit < 1 || limit > 100) limit = 10; // Max 100 par page
+    const cacheKey = `users:page=${page}:limit=${limit}:status=${status}:search=${search}`;
+    const cached = await this.getCache(cacheKey);
+    if (cached) return cached;
 
-    // Calcul du skip (nombre d'éléments à sauter)
-    // Ex: page 3, limit 10 → skip 20 (on saute les 20 premiers)
+    if (page < 1) page = 1;
+    if (limit < 1 || limit > 100) limit = 10;
     const skip = (page - 1) * limit;
 
-    // Construction du filtre WHERE de Prisma
     const where: any = {};
-
-    // Filtrer par statut si fourni
-    if (status) {
-      where.status = status;
-    }
-
-    // Recherche par email, firstName ou lastName
+    if (status) where.status = status;
     if (search) {
       where.OR = [
-        { email: { contains: search, mode: 'insensitive' } }, // insensitive = case insensitive
+        { email: { contains: search, mode: 'insensitive' } },
         { firstName: { contains: search, mode: 'insensitive' } },
         { lastName: { contains: search, mode: 'insensitive' } },
         { city: { contains: search, mode: 'insensitive' } },
@@ -83,13 +79,12 @@ export class UsersService {
       ];
     }
 
-    // 🔍 Récupérer les utilisateurs ET le total (pour la pagination)
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' }, // Les plus récents en premier
+        orderBy: { createdAt: 'desc' },
         select: {
           id: true,
           email: true,
@@ -107,40 +102,36 @@ export class UsersService {
           updatedAt: true,
         },
       }),
-      this.prisma.user.count({ where }), // Compte total pour la pagination
+      this.prisma.user.count({ where }),
     ]);
 
-    // Transformer en UserEntity (exclut les champs sensibles)
-    const userEntities = users.map((user) => new UserEntity(user));
-
-    // Calculer les métadonnées de pagination
+    const userEntities = users.map((u) => new UserEntity(u));
     const totalPages = Math.ceil(total / limit);
-    const hasNextPage = page < totalPages;
-    const hasPreviousPage = page > 1;
 
-    return {
+    const result = {
       data: userEntities,
       meta: {
-        total, // Nombre total d'utilisateurs
-        page, // Page actuelle
-        limit, // Limite par page
-        totalPages, // Nombre total de pages
-        hasNextPage, // Y a-t-il une page suivante ?
-        hasPreviousPage, // Y a-t-il une page précédente ?
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
       },
     };
+
+    await this.setCache(cacheKey, result); // Stockage en cache Redis
+    return result;
   }
 
-  // =====================================
-  // 🔍 DÉTAILS D'UN UTILISATEUR (ADMIN)
-  // =====================================
-
-  /**
-   * Récupérer les détails d'un utilisateur par ID
-   *
-   * @param id - UUID de l'utilisateur
-   */
+  // =====================
+  // FIND ONE UTILISATEUR
+  // =====================
   async findOne(id: string): Promise<UserEntity> {
+    const cacheKey = `user:${id}`;
+    const cached = await this.getCache(cacheKey);
+    if (cached) return cached;
+
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
@@ -165,12 +156,11 @@ export class UsersService {
       },
     });
 
-    // ❌ Vérifier que l'utilisateur existe
-    if (!user) {
-      throw new NotFoundException(`Utilisateur avec l'ID ${id} non trouvé`);
-    }
+    if (!user) throw new NotFoundException(`Utilisateur ${id} non trouvé`);
 
-    return new UserEntity(user);
+    const entity = new UserEntity(user);
+    await this.setCache(cacheKey, entity, 600); // TTL 10min
+    return entity;
   }
 
   // =====================================
@@ -311,82 +301,45 @@ export class UsersService {
     return new UserEntity(updatedUser);
   }
 
-  // =====================================
-  // 🔐 CHANGER SON MOT DE PASSE
-  // =====================================
-
-  /**
-   * Changer le mot de passe de l'utilisateur connecté
-   *
-   * 🤔 SÉCURITÉ IMPORTANTE :
-   * 1. Vérifier l'ancien mot de passe (pas juste le token JWT)
-   * 2. Vérifier que le nouveau mot de passe est différent de l'ancien
-   * 3. Hasher le nouveau mot de passe
-   *
-   * @param userId - ID de l'utilisateur connecté
-   * @param updatePasswordDto - Ancien et nouveau mot de passe
-   */
-  async updatePassword(
-    userId: string,
-    updatePasswordDto: UpdatePasswordDto,
-  ): Promise<{ message: string }> {
-    const { currentPassword, newPassword } = updatePasswordDto;
-
-    // 🔍 Récupérer l'utilisateur avec son mot de passe
+  // =====================
+  // UPDATE PASSWORD (USER)
+  // =====================
+  async updatePassword(userId: string, dto: UpdatePasswordDto) {
+    const { currentPassword, newPassword } = dto;
     const user = await this.prisma.user.findUnique({
       where: { id: userId, status: UserStatus.ACTIVE },
-      select: {
-        id: true,
-        email: true,
-        password: true,
-        status: true,
-      },
+      select: { id: true, email: true, password: true, status: true },
     });
 
-    if (!user) {
-      throw new NotFoundException('Utilisateur non trouvé');
-    }
+    if (!user) throw new NotFoundException('Utilisateur non trouvé');
 
-    // ✅ Vérifier le statut
-    if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException(
-        "Impossible de modifier le mot de passe d'un compte inactif",
-      );
-    }
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) throw new UnauthorizedException('Mot de passe incorrect');
 
-    // ✅ Vérifier l'ancien mot de passe
-    const isCurrentPasswordValid = await bcrypt.compare(
-      currentPassword,
-      user.password,
-    );
-
-    if (!isCurrentPasswordValid) {
-      throw new UnauthorizedException('Mot de passe actuel incorrect');
-    }
-
-    // ✅ Vérifier que le nouveau mot de passe est différent
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
-
-    if (isSamePassword) {
+    if (await bcrypt.compare(newPassword, user.password))
       throw new BadRequestException(
-        "Le nouveau mot de passe doit être différent de l'ancien",
+        'Le nouveau mot de passe doit être différent de l’ancien',
       );
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+
+    // Rate limiting simple pour protéger la route
+    const redisKey = `pwd:attempts:${userId}`;
+    const attempts = await this.redisService.getClient().incr(redisKey);
+    if (attempts > 5) {
+      throw new ForbiddenException('Trop de tentatives, réessayez dans 1h');
+    }
+    if (attempts === 1) {
+      await this.redisService.getClient().expire(redisKey, 3600);
     }
 
-    // 🔐 Hasher le nouveau mot de passe
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-
-    // 💾 Mettre à jour le mot de passe
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashedNewPassword },
+      data: { password: hashed },
     });
 
-    this.logger.log(`✅ Mot de passe changé : ${user.email}`);
-
-    return {
-      message: 'Mot de passe modifié avec succès',
-    };
+    this.logger.log(`Mot de passe changé : ${user.email}`);
+    return { message: 'Mot de passe modifié avec succès' };
   }
 
   // =====================================

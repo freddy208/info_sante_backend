@@ -1,17 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-// src/auth/dto/login.dto.ts
+import { IsEmail, IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsEmail, IsString, IsNotEmpty } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger'; // ✅ Ajouté
-
-/**
- * 🔐 LOGIN DTO
- *
- * Validation des données de connexion.
- */
 export class LoginDto {
   @ApiProperty({
-    description: "Adresse email de l'utilisateur",
+    description: 'Adresse email',
     example: 'john.doe@example.com',
     format: 'email',
   })
@@ -20,11 +12,24 @@ export class LoginDto {
   email: string;
 
   @ApiProperty({
-    description: "Mot de passe de l'utilisateur",
+    description: 'Mot de passe',
     example: 'Password123!',
     format: 'password',
   })
-  @IsString({ message: 'Mot de passe invalide' })
+  @IsString()
   @IsNotEmpty({ message: 'Mot de passe requis' })
   password: string;
+
+  @ApiPropertyOptional({
+    description: 'Device ID pour session',
+    example: 'device123',
+  })
+  @IsOptional()
+  @IsString()
+  deviceId?: string;
+
+  @ApiPropertyOptional({ description: 'User Agent', example: 'Mozilla/5.0 …' })
+  @IsOptional()
+  @IsString()
+  userAgent?: string;
 }

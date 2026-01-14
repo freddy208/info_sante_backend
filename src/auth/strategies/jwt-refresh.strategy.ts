@@ -7,11 +7,6 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayloadData } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from 'prisma/prisma.service';
 
-/**
- * 🔄 JWT REFRESH STRATEGY
- *
- * Valide le refresh token pour générer un nouveau access token.
- */
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(
   Strategy,
@@ -22,9 +17,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
     private prisma: PrismaService,
   ) {
     const refreshSecret = configService.get<string>('jwt.refreshSecret');
-    if (!refreshSecret) {
-      throw new Error('JWT refresh secret is not defined');
-    }
+    if (!refreshSecret) throw new Error('JWT refresh secret is not defined');
 
     super({
       jwtFromRequest: ExtractJwt.fromBodyField('refreshToken'),
@@ -34,12 +27,11 @@ export class JwtRefreshStrategy extends PassportStrategy(
   }
 
   async validate(payload: JwtPayloadData) {
-    // Vérifier que c'est bien un refresh token
     if (payload.type !== 'refresh') {
       throw new UnauthorizedException('Type de token invalide');
     }
 
-    // Récupérer l'utilisateur
+    // Vérification hash du refresh token côté DB
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -50,18 +42,18 @@ export class JwtRefreshStrategy extends PassportStrategy(
         phone: true,
         avatar: true,
         status: true,
+        hashedRefreshToken: true, // stocké hash
       },
     });
 
-    // Vérifier que l'utilisateur existe et est actif
-    if (!user) {
-      throw new UnauthorizedException('Utilisateur non trouvé');
-    }
-
-    if (user.status !== 'ACTIVE') {
+    if (!user) throw new UnauthorizedException('Utilisateur non trouvé');
+    if (user.status !== 'ACTIVE')
       throw new UnauthorizedException('Compte inactif ou suspendu');
-    }
 
-    return user;
+    return {
+      ...user,
+      sub: payload.sub,
+      deviceId: payload.deviceId,
+    };
   }
 }

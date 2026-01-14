@@ -1,19 +1,721 @@
-//generator client {
-//provider = "prisma-client"
-//output   = "../generated/prisma"
-//}
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // Ajoutez cette ligne
 }
 
-// ============================================
-// ENUMS
-// ============================================
+model User {
+  id                     String                     @id @default(uuid())
+  email                  String                     @unique
+  password               String
+  firstName              String?
+  lastName               String?
+  phone                  String?                    @unique
+  avatar                 String?
+  dateOfBirth            DateTime?
+  gender                 Gender?
+  city                   String?
+  region                 String?
+  isEmailVerified        Boolean                    @default(false)
+  isPhoneVerified        Boolean                    @default(false)
+  emailVerificationToken String?
+  phoneVerificationToken String?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  fcmTokens              String[]                   @default([])
+  hashedRefreshToken String?
+  lastLoginAt            DateTime?
+  lastLoginIp            String?
+  status                 UserStatus                 @default(ACTIVE)
+  deletedAt              DateTime?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  registrations          AnnouncementRegistration[]
+  bookmarks              Bookmark[]
+  comments               Comment[]
+  notifications          Notification[]
+  reactions              Reaction[]
+  reports                Report[]
+  sessions               Session[]
+  preference             UserPreference?
+
+  @@map("users")
+}
+
+model Organization {
+  id                 String                   @id @default(uuid())
+  name               String
+  email              String                   @unique
+  password           String
+  type               OrganizationType
+  phone              String
+  whatsapp           String?
+  logo               String?
+  coverImage         String?
+  description        String?
+  website            String?
+  address            String
+  city               String
+  region             String
+  latitude           Decimal?                 @db.Decimal(10, 8)
+  longitude          Decimal?                 @db.Decimal(11, 8)
+  registrationNumber String                   @unique
+  licenseDocument    String?
+  isVerified         Boolean                  @default(false)
+  verifiedAt         DateTime?
+  verifiedBy         String?
+  openingHours       Json?
+  emergencyAvailable Boolean                  @default(false)
+  insuranceAccepted  String[]                 @default([])
+  rating             Decimal?                 @db.Decimal(2, 1)
+  totalReviews       Int                      @default(0)
+  totalAnnouncements Int                      @default(0)
+  totalArticles      Int                      @default(0)
+  fcmTokens          String[]                 @default([])
+  lastLoginAt        DateTime?
+  lastLoginIp        String?
+  status             OrganizationStatus       @default(PENDING)
+  suspensionReason   String?
+  suspendedAt        DateTime?
+  suspendedBy        String?
+  deletedAt          DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  search_vector      Unsupported("tsvector")?
+  advices            Advice[]
+  announcements      Announcement[]
+  articles           Article[]
+  notificationLogs   NotificationLog[]
+  members            OrganizationMember[]
+  permissions        OrganizationPermission[]
+  services           OrganizationService[]
+  suspender          Administrator?           @relation("OrganizationSuspender", fields: [suspendedBy], references: [id])
+  verifier           Administrator?           @relation("OrganizationVerifier", fields: [verifiedBy], references: [id])
+  sessions           Session[]
+
+  @@index([latitude, longitude])
+  @@index([status, type])
+  @@index([search_vector], map: "idx_org_search_vector", type: Gin)
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String
+  phone          String?
+  position       String?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, email])
+  @@map("organization_members")
+}
+
+model OrganizationPermission {
+  id             String             @id @default(uuid())
+  organizationId String
+  resource       PermissionResource
+  actions        PermissionAction[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, resource])
+  @@map("organization_permissions")
+}
+
+model Administrator {
+  id                     String                    @id @default(uuid())
+  email                  String                    @unique
+  password               String
+  firstName              String
+  lastName               String
+  phone                  String?
+  avatar                 String?
+  role                   AdminRole                 @default(MODERATOR)
+  isActive               Boolean                   @default(true)
+  lastLoginAt            DateTime?
+  lastLoginIp            String?
+  createdBy              String?
+  status                 AdminStatus               @default(ACTIVE)
+  deletedAt              DateTime?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  permissions            AdministratorPermission[]
+  creator                Administrator?            @relation("AdminCreator", fields: [createdBy], references: [id])
+  createdAdmins          Administrator[]           @relation("AdminCreator")
+  suspendedOrganizations Organization[]            @relation("OrganizationSuspender")
+  verifiedOrganizations  Organization[]            @relation("OrganizationVerifier")
+  reviewedReports        Report[]
+  sessions               Session[]
+
+  @@map("administrators")
+}
+
+model AdministratorPermission {
+  id              String                  @id @default(uuid())
+  administratorId String
+  resource        AdminPermissionResource
+  actions         AdminPermissionAction[]
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  administrator   Administrator           @relation(fields: [administratorId], references: [id], onDelete: Cascade)
+
+  @@unique([administratorId, resource])
+  @@map("administrator_permissions")
+}
+
+model AdminRoleTemplate {
+  id          String    @id @default(uuid())
+  role        AdminRole @unique
+  name        String
+  description String
+  permissions Json
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("admin_role_templates")
+}
+
+model Category {
+  id                 String         @id @default(uuid())
+  name               String         @unique
+  slug               String?        @unique
+  description        String?
+  icon               String?
+  color              String?
+  parentId           String?
+  order              Int            @default(0)
+  isActive           Boolean        @default(true)
+  announcementsCount Int            @default(0)
+  articlesCount      Int            @default(0)
+  advicesCount       Int            @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  advices            Advice[]
+  announcements      Announcement[]
+  articles           Article[]
+  parent             Category?      @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children           Category[]     @relation("CategoryHierarchy")
+
+  @@map("categories")
+}
+
+model Specialty {
+  id          String                @id @default(uuid())
+  name        String                @unique
+  slug        String?               @unique
+  description String?
+  icon        String?
+  isActive    Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  services    OrganizationService[]
+
+  @@map("specialties")
+}
+
+model OrganizationService {
+  id                  String       @id @default(uuid())
+  organizationId      String
+  specialtyId         String
+  name                String
+  description         String?
+  isAvailable         Boolean      @default(true)
+  estimatedCost       String?
+  duration            String?
+  requiresAppointment Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  specialty           Specialty    @relation(fields: [specialtyId], references: [id])
+
+  @@map("organization_services")
+}
+
+model Announcement {
+  id                   String                     @id @default(uuid())
+  organizationId       String
+  categoryId           String
+  title                String
+  slug                 String?                    @unique
+  content              String
+  excerpt              String?
+  featuredImage        String
+  thumbnailImage       String?
+  startDate            DateTime
+  endDate              DateTime
+  targetAudience       TargetAudience[]
+  isFree               Boolean                    @default(true)
+  cost                 Decimal?                   @db.Decimal(10, 2)
+  capacity             Int?
+  registeredCount      Int                        @default(0)
+  requiresRegistration Boolean                    @default(false)
+  viewsCount           Int                        @default(0)
+  sharesCount          Int                        @default(0)
+  commentsCount        Int                        @default(0)
+  reactionsCount       Int                        @default(0)
+  notificationsSent    Int                        @default(0)
+  isPinned             Boolean                    @default(false)
+  publishedAt          DateTime?
+  status               AnnouncementStatus         @default(DRAFT)
+  suspensionReason     String?
+  suspendedBy          String?
+  deletedAt            DateTime?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  priority             Priority?                  @default(LOW)
+  search_vector        Unsupported("tsvector")?
+  registrations        AnnouncementRegistration[]
+  views                AnnouncementView[]
+  category             Category                   @relation(fields: [categoryId], references: [id])
+  organization         Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bookmarks            Bookmark[]
+  comments             Comment[]
+  location             Location?
+  media                Media[]
+  notificationLogs     NotificationLog[]
+  reactions            Reaction[]                  @relation("ReactionAnnouncement")
+  statistics           Statistic[]
+
+  @@index([status, publishedAt])
+  @@index([categoryId, status])
+  @@index([organizationId, status])
+  @@index([isPinned, publishedAt])
+  @@index([search_vector], map: "idx_announcements_search_vector", type: Gin)
+  @@map("announcements")
+}
+
+model AnnouncementRegistration {
+  id                 String             @id @default(uuid())
+  announcementId     String
+  userId             String?
+  visitorName        String?
+  visitorPhone       String?
+  visitorEmail       String?
+  status             RegistrationStatus @default(PENDING)
+  confirmedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  attendedAt         DateTime?
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  deviceId           String?
+  announcement       Announcement       @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user               User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@unique([announcementId, deviceId])
+  @@index([announcementId, status])
+  @@map("announcement_registrations")
+}
+
+model Article {
+  id               String                   @id @default(uuid())
+  organizationId   String
+  categoryId       String
+  title            String
+  slug             String?                  @unique
+  content          String
+  excerpt          String?
+  featuredImage    String
+  thumbnailImage   String?
+  author           String?
+  readingTime      Int?
+  tags             String[]                 @default([])
+  viewsCount       Int                      @default(0)
+  sharesCount      Int                      @default(0)
+  commentsCount    Int                      @default(0)
+  reactionsCount   Int                      @default(0)
+  isFeatured       Boolean                  @default(false)
+  publishedAt      DateTime?
+  status           ArticleStatus            @default(DRAFT)
+  suspensionReason String?
+  suspendedBy      String?
+  deletedAt        DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  search_vector    Unsupported("tsvector")?
+  category         Category                 @relation(fields: [categoryId], references: [id])
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bookmarks        Bookmark[]
+  comments         Comment[]
+  media            Media[]
+  notificationLogs NotificationLog[]
+  reactions        Reaction[]     @relation("ReactionArticle")
+  statistics       Statistic[]
+
+  @@index([status, publishedAt])
+  @@index([organizationId, status])
+  @@index([slug])
+  @@index([search_vector], map: "idx_articles_search_vector", type: Gin)
+  @@map("articles")
+}
+
+model Advice {
+  id             String           @id @default(uuid())
+  organizationId String
+  categoryId     String
+  title          String
+  content        String
+  icon           String?
+  priority       Priority         @default(MEDIUM)
+  targetAudience TargetAudience[]
+  viewsCount     Int              @default(0)
+  sharesCount    Int              @default(0)
+  commentsCount  Int              @default(0)
+  isActive       Boolean          @default(true)
+  publishedAt    DateTime?
+  status         AdviceStatus     @default(DRAFT)
+  deletedAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  reactionsCount Int              @default(0)
+  search_vector Unsupported("tsvector")?
+  category       Category         @relation(fields: [categoryId], references: [id])
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reactions      Reaction[]      @relation("ReactionAdvice")
+  comments       Comment[]
+  bookmarks      Bookmark[]
+
+  @@index([status, publishedAt])
+  @@index([priority, status])
+  @@index([organizationId, status])
+  @@map("advices")
+}
+
+model Comment {
+  id              String        @id @default(uuid())
+  userId          String
+  contentType     ContentType
+  // On garde contentId uniquement si vous voulez l'utiliser pour d'autres types non reliés, 
+  // mais il vaut mieux privilégier les colonnes ci-dessous pour la DB :
+  contentId       String        
+
+  content         String
+  reactionsCount  Int           @default(0)
+  repliesCount    Int           @default(0)
+  isEdited        Boolean       @default(false)
+  editedAt        DateTime?
+  status          CommentStatus @default(VISIBLE)
+  
+  createdAt       DateTime      @default(now())
+  deletedAt DateTime? // Ajoutez cette ligne
+  updatedAt       DateTime      @updatedAt
+
+  // ✅ Relations explicites pour éviter les conflits SQL
+  announcementId  String?
+  articleId       String?
+  adviceId        String?
+
+  advice          Advice?       @relation(fields: [adviceId], references: [id], onDelete: Cascade)
+  parentCommentId String?
+
+  // ✅ Mapping des relations
+  announcement    Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  article         Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  parentComment   Comment?      @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies         Comment[]     @relation("CommentReplies")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions       Reaction[]     @relation("ReactionComment")
+
+  @@index([announcementId])
+  @@index([articleId])
+  @@index([parentCommentId])
+  @@index([adviceId])
+  @@index([contentType, contentId]) // Gardé pour la compatibilité des requêtes rapides
+  @@map("comments")
+}
+
+model Reaction {
+  id             String       @id @default(uuid())
+  userId         String
+  type           ReactionType @default(LIKE)
+  
+  // Ajoutez cette ligne pour catégoriser la réaction
+  contentType    ContentType  
+
+  announcementId String?
+  articleId      String?
+  commentId      String?
+  adviceId       String?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  announcement   Announcement? @relation("ReactionAnnouncement", fields: [announcementId], references: [id], onDelete: Cascade)
+  article        Article?      @relation("ReactionArticle", fields: [articleId], references: [id], onDelete: Cascade)
+  comment        Comment?       @relation("ReactionComment", fields: [commentId], references: [id], onDelete: Cascade)
+  advice         Advice?        @relation("ReactionAdvice", fields: [adviceId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Index uniques pour éviter les doublons
+  @@unique([userId, announcementId])
+  @@unique([userId, articleId])
+  @@unique([userId, commentId])
+  @@unique([userId, adviceId])
+  @@map("reactions")
+}
+
+model Location {
+  id               String       @id @default(uuid())
+  contentType      ContentType
+  contentId        String       @unique
+  address          String
+  city             String
+  region           String
+  latitude         Decimal      @db.Decimal(10, 8)
+  longitude        Decimal      @db.Decimal(11, 8)
+  placeId          String?
+  formattedAddress String?
+  additionalInfo   String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  announcement     Announcement @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@map("locations")
+}
+
+model Media {
+  id                 String        @id @default(uuid())
+  uploadedBy         String
+  contentType        ContentType
+  contentId          String?
+  fileName           String
+  originalFileName   String
+  mimeType           String
+  fileSize           Int
+  url                String
+  thumbnailUrl       String?
+  width              Int?
+  height             Int?
+  cloudinaryPublicId String
+  status             MediaStatus   @default(ACTIVE)
+  deletedAt          DateTime?
+  createdAt          DateTime      @default(now())
+  uploaderType       UserType
+  announcement Announcement? @relation(fields: [contentId], references: [id], map: "media_announcement")
+  article      Article?      @relation(fields: [contentId], references: [id], map: "media_article")
+
+
+  @@index([uploadedBy, uploaderType])
+  @@map("media")
+}
+
+model UserPreference {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  categories           String[] @default([])
+  organizations        String[] @default([])
+  cities               String[] @default([])
+  regions              String[] @default([])
+  notificationsEnabled Boolean  @default(true)
+  emailNotifications   Boolean  @default(true)
+  pushNotifications    Boolean  @default(true)
+  language             String   @default("FR")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model Notification {
+  id             String           @id @default(uuid())
+  userId         String
+  type           NotificationType
+  title          String
+  body           String
+  data           Json?
+  contentType    ContentType?
+  contentId      String?
+  imageUrl       String?
+  isRead         Boolean          @default(false)
+  readAt         DateTime?
+  isSent         Boolean          @default(false)
+  sentAt         DateTime?
+  deliveryStatus DeliveryStatus   @default(PENDING)
+  failureReason  String?
+  createdAt      DateTime         @default(now())
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model NotificationLog {
+  id              String        @id @default(uuid())
+  announcementId  String?
+  articleId       String?
+  totalRecipients Int
+  successCount    Int           @default(0)
+  failureCount    Int           @default(0)
+  sentBy          String
+  sentAt          DateTime      @default(now())
+  fcmResponse     Json?
+  createdAt       DateTime      @default(now())
+  announcement    Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  article         Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  organization    Organization  @relation(fields: [sentBy], references: [id], onDelete: Cascade)
+
+  @@map("notification_logs")
+}
+
+model Bookmark {
+  id             String      @id @default(uuid())
+  userId         String
+  contentType    ContentType
+  createdAt      DateTime    @default(now())
+
+  // ✅ On utilise uniquement ces colonnes pour les relations
+  announcementId String?
+  articleId      String?
+  adviceId       String?
+
+  advice         Advice?       @relation(fields: [adviceId], references: [id], onDelete: Cascade)
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement   Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade, map: "bookmark_announcement_fkey")
+  article        Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade, map: "bookmark_article_fkey")
+
+  // ✅ Mise à jour de l'index unique pour refléter la nouvelle structure
+  @@unique([userId, contentType, announcementId])
+  @@unique([userId, contentType, articleId])
+  
+  @@index([userId, contentType])
+  @@index([userId, createdAt])
+  @@unique([userId, contentType, adviceId])
+  @@map("bookmarks")
+}
+
+model AuditLog {
+  id           String       @id @default(uuid())
+  actorType    ActorType
+  actorId      String
+  action       ActionType
+  resourceType ResourceType
+  resourceId   String?
+  changes      Json?
+  metadata     Json?
+  ipAddress    String?
+  userAgent    String?
+  status       AuditStatus  @default(SUCCESS)
+  errorMessage String?
+  createdAt    DateTime     @default(now())
+
+  @@index([actorType, actorId])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Report {
+  id          String         @id @default(uuid())
+  reportedBy  String
+  contentType ContentType
+  contentId   String
+  reason      ReportReason
+  description String?
+  status      ReportStatus   @default(PENDING)
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  resolution  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  reporter    User           @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
+  reviewer    Administrator? @relation(fields: [reviewedBy], references: [id])
+
+  @@map("reports")
+}
+
+model Session {
+  id              String         @id @default(uuid())
+  userType        UserType
+  userId          String?
+  accessToken     String         @unique
+  refreshToken    String         @unique
+  fcmToken        String?
+  ipAddress       String?
+  userAgent       String?
+  deviceType      DeviceType     @default(WEB)
+  isActive        Boolean        @default(true)
+  expiresAt       DateTime
+  lastActivityAt  DateTime?
+  createdAt       DateTime       @default(now())
+  administratorId String?
+  organizationId  String?
+
+  user          User?          @relation(fields: [userId], references: [id], map: "session_user")
+  organization  Organization? @relation(fields: [userId], references: [id], map: "session_org")
+  administrator Administrator? @relation(fields: [userId], references: [id], map: "session_admin")
+
+  
+
+  @@index([userType, userId])
+  @@index([userType, organizationId])
+  @@index([userType, administratorId])
+  @@index([isActive, expiresAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model AnnouncementView {
+  id             String       @id @default(uuid())
+  announcementId String
+  userId         String?
+  ipAddress      String?
+  userAgent      String?
+  referrer       String?
+  viewDuration   Int?
+  createdAt      DateTime     @default(now())
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@index([announcementId])
+  @@map("announcement_views")
+}
+
+model Statistic {
+  id           String       @id @default(uuid())
+  resourceType ResourceType
+  resourceId   String
+  date         DateTime     @db.Date
+  views        Int          @default(0)
+  uniqueViews  Int          @default(0)
+  shares       Int          @default(0)
+  comments     Int          @default(0)
+  reactions    Int          @default(0)
+  createdAt    DateTime     @default(now())
+
+  // Relations corrigées
+  announcement Announcement? @relation(fields: [resourceId], references: [id], map: "stat_announcement")
+  article      Article?      @relation(fields: [resourceId], references: [id], map: "stat_article")
+
+  @@unique([resourceType, resourceId, date])
+  @@index([resourceType, resourceId])
+  @@map("statistics")
+}
+
+
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model spatial_ref_sys {
+  srid      Int     @id
+  auth_name String? @db.VarChar(256)
+  auth_srid Int?
+  srtext    String? @db.VarChar(2048)
+  proj4text String? @db.VarChar(2048)
+}
 
 enum UserStatus {
   ACTIVE
@@ -23,23 +725,23 @@ enum UserStatus {
 }
 
 enum OrganizationType {
-  HOSPITAL_PUBLIC // Hôpital public
-  HOSPITAL_PRIVATE // Hôpital privé
-  CLINIC // Clinique
-  HEALTH_CENTER // Centre de santé
-  DISPENSARY // Dispensaire
-  MINISTRY // Ministère de la Santé
-  NGO // ONG (Croix-Rouge, MSF, etc.)
-  FOUNDATION // Fondation
-  RESEARCH_CENTER // Centre de recherche
+  HOSPITAL_PUBLIC
+  HOSPITAL_PRIVATE
+  CLINIC
+  HEALTH_CENTER
+  DISPENSARY
+  MINISTRY
+  NGO
+  FOUNDATION
+  RESEARCH_CENTER
 }
 
 enum OrganizationStatus {
-  PENDING // En attente de validation
-  ACTIVE // Actif
-  INACTIVE // Inactif
-  SUSPENDED // Suspendu
-  DELETED // Supprimé (soft delete)
+  PENDING
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  DELETED
 }
 
 enum Gender {
@@ -110,6 +812,13 @@ enum Priority {
   URGENT
 }
 
+enum ResourceType {
+  ANNOUNCEMENT
+  ARTICLE
+  COMMENT
+  USER
+}
+
 enum NotificationType {
   NEW_ANNOUNCEMENT
   NEW_ARTICLE
@@ -127,11 +836,11 @@ enum DeliveryStatus {
 }
 
 enum AdminRole {
-  SUPER_ADMIN // Tous les droits
-  MODERATOR // Modération de contenu
-  SUPPORT // Support utilisateurs
-  ANALYST // Consultation des statistiques
-  VALIDATOR // Validation des hôpitaux/ONG
+  SUPER_ADMIN
+  MODERATOR
+  SUPPORT
+  ANALYST
+  VALIDATOR
 }
 
 enum AdminStatus {
@@ -141,40 +850,27 @@ enum AdminStatus {
 }
 
 enum AdminPermissionAction {
-  // Gestion des organisations
   VALIDATE_ORGANIZATION
   SUSPEND_ORGANIZATION
   DELETE_ORGANIZATION
   VIEW_ORGANIZATIONS
   EXPORT_ORGANIZATIONS
-
-  // Gestion des utilisateurs
   VIEW_USERS
   SUSPEND_USER
   DELETE_USER
   EXPORT_USERS
-
-  // Modération de contenu
   MODERATE_ANNOUNCEMENT
   MODERATE_ARTICLE
   MODERATE_COMMENT
   DELETE_CONTENT
-
-  // Gestion des signalements
   VIEW_REPORTS
   RESOLVE_REPORTS
-
-  // Gestion des catégories et spécialités
   MANAGE_CATEGORIES
   MANAGE_SPECIALTIES
-
-  // Audit et statistiques
   VIEW_AUDIT_LOGS
   EXPORT_AUDIT_LOGS
   VIEW_STATISTICS
   EXPORT_DATA
-
-  // Administration système
   MANAGE_ADMINS
   MANAGE_PERMISSIONS
   SYSTEM_SETTINGS
@@ -219,17 +915,6 @@ enum ActionType {
   REGISTER_TO_ANNOUNCEMENT
 }
 
-enum ResourceType {
-  USER
-  ORGANIZATION
-  ANNOUNCEMENT
-  ARTICLE
-  ADVICE
-  COMMENT
-  MEDIA
-  CATEGORY
-  REGISTRATION
-}
 
 enum AuditStatus {
   SUCCESS
@@ -300,699 +985,4 @@ enum RegistrationStatus {
   CONFIRMED
   CANCELLED
   ATTENDED
-}
-
-// ============================================
-// MODELS
-// ============================================
-
-model User {
-  id                     String     @id @default(uuid())
-  email                  String     @unique
-  password               String
-  firstName              String?
-  lastName               String?
-  phone                  String?    @unique
-  avatar                 String?
-  dateOfBirth            DateTime?
-  gender                 Gender?
-  city                   String?
-  region                 String?
-  isEmailVerified        Boolean    @default(false)
-  isPhoneVerified        Boolean    @default(false)
-  emailVerificationToken String?
-  phoneVerificationToken String?
-  passwordResetToken     String?
-  passwordResetExpires   DateTime?
-  fcmTokens              String[]   @default([])
-  lastLoginAt            DateTime?
-  lastLoginIp            String?
-  status                 UserStatus @default(ACTIVE)
-  deletedAt              DateTime?
-  createdAt              DateTime   @default(now())
-  updatedAt              DateTime   @updatedAt
-
-  // Relations
-  comments      Comment[]
-  reactions     Reaction[]
-  bookmarks     Bookmark[]
-  notifications Notification[]
-  reports       Report[]
-  sessions      Session[]
-  preference    UserPreference?
-  registrations AnnouncementRegistration[] // NOUVEAU
-
-  @@map("users")
-}
-
-model Organization {
-  id                 String             @id @default(uuid())
-  name               String
-  email              String             @unique
-  password           String
-  type               OrganizationType // AJUSTÉ
-  phone              String
-  whatsapp           String?
-  logo               String?
-  coverImage         String?
-  description        String?            @db.Text
-  website            String?
-  address            String
-  city               String
-  region             String
-  latitude           Decimal?           @db.Decimal(10, 8)
-  longitude          Decimal?           @db.Decimal(11, 8)
-  registrationNumber String             @unique
-  licenseDocument    String?
-  isVerified         Boolean            @default(false)
-  verifiedAt         DateTime?
-  verifiedBy         String?
-  openingHours       Json?
-  emergencyAvailable Boolean            @default(false)
-  insuranceAccepted  String[]           @default([])
-  rating             Decimal?           @db.Decimal(2, 1)
-  totalReviews       Int                @default(0)
-  totalAnnouncements Int                @default(0)
-  totalArticles      Int                @default(0)
-  fcmTokens          String[]           @default([])
-  lastLoginAt        DateTime?
-  lastLoginIp        String?
-  status             OrganizationStatus @default(PENDING)
-  suspensionReason   String?            @db.Text
-  suspendedAt        DateTime?
-  suspendedBy        String?
-  deletedAt          DateTime?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-
-  // Relations
-  announcements    Announcement[]
-  articles         Article[]
-  advices          Advice[]
-  services         OrganizationService[]
-  sessions         Session[]
-  verifier         Administrator?           @relation("OrganizationVerifier", fields: [verifiedBy], references: [id])
-  suspender        Administrator?           @relation("OrganizationSuspender", fields: [suspendedBy], references: [id])
-  notificationLogs NotificationLog[]
-  permissions      OrganizationPermission[] // NOUVEAU
-  members          OrganizationMember[] // NOUVEAU
-
-  @@map("organizations")
-}
-
-// NOUVEAU : Gestion des membres d'une organisation
-model OrganizationMember {
-  id             String   @id @default(uuid())
-  organizationId String
-  firstName      String
-  lastName       String
-  email          String
-  phone          String?
-  position       String? // Poste (ex: Directeur, Médecin-chef)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, email])
-  @@map("organization_members")
-}
-
-// NOUVEAU : Système de permissions par organisation
-model OrganizationPermission {
-  id             String             @id @default(uuid())
-  organizationId String
-  resource       PermissionResource
-  actions        PermissionAction[]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, resource])
-  @@map("organization_permissions")
-}
-
-model Administrator {
-  id          String      @id @default(uuid())
-  email       String      @unique
-  password    String
-  firstName   String
-  lastName    String
-  phone       String?
-  avatar      String?
-  role        AdminRole   @default(MODERATOR)
-  isActive    Boolean     @default(true)
-  lastLoginAt DateTime?
-  lastLoginIp String?
-  createdBy   String?
-  status      AdminStatus @default(ACTIVE)
-  deletedAt   DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  // Relations
-  creator                Administrator?            @relation("AdminCreator", fields: [createdBy], references: [id])
-  createdAdmins          Administrator[]           @relation("AdminCreator")
-  verifiedOrganizations  Organization[]            @relation("OrganizationVerifier")
-  suspendedOrganizations Organization[]            @relation("OrganizationSuspender")
-  reviewedReports        Report[]
-  sessions               Session[]
-  permissions            AdministratorPermission[] // NOUVEAU : Permissions granulaires
-
-  @@map("administrators")
-}
-
-// NOUVEAU : Table de permissions pour les administrateurs
-model AdministratorPermission {
-  id              String                  @id @default(uuid())
-  administratorId String
-  resource        AdminPermissionResource
-  actions         AdminPermissionAction[]
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
-
-  // Relations
-  administrator Administrator @relation(fields: [administratorId], references: [id], onDelete: Cascade)
-
-  @@unique([administratorId, resource])
-  @@map("administrator_permissions")
-}
-
-// NOUVEAU : Modèle pour les rôles prédéfinis (templates de permissions)
-model AdminRoleTemplate {
-  id          String    @id @default(uuid())
-  role        AdminRole @unique
-  name        String // Ex: "Super Administrateur"
-  description String    @db.Text
-  permissions Json // Structure { resource: [actions] }
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@map("admin_role_templates")
-}
-
-model Category {
-  id                 String   @id @default(uuid())
-  name               String   @unique
-  slug               String?  @unique
-  description        String?  @db.Text
-  icon               String?
-  color              String?
-  parentId           String?
-  order              Int      @default(0)
-  isActive           Boolean  @default(true)
-  announcementsCount Int      @default(0)
-  articlesCount      Int      @default(0)
-  advicesCount       Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  // Relations
-  parent        Category?      @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children      Category[]     @relation("CategoryHierarchy")
-  announcements Announcement[]
-  articles      Article[]
-  advices       Advice[]
-
-  @@map("categories")
-}
-
-model Specialty {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  slug        String?  @unique
-  description String?  @db.Text
-  icon        String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  services OrganizationService[]
-
-  @@map("specialties")
-}
-
-model OrganizationService {
-  id                  String   @id @default(uuid())
-  organizationId      String
-  specialtyId         String
-  name                String
-  description         String?  @db.Text
-  isAvailable         Boolean  @default(true)
-  estimatedCost       String?
-  duration            String?
-  requiresAppointment Boolean  @default(false)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  specialty    Specialty    @relation(fields: [specialtyId], references: [id])
-
-  @@map("organization_services")
-}
-
-model Announcement {
-  id                   String             @id @default(uuid())
-  organizationId       String
-  categoryId           String
-  title                String
-  slug                 String?            @unique
-  content              String             @db.Text
-  excerpt              String?
-  featuredImage        String
-  thumbnailImage       String?
-  startDate            DateTime
-  endDate              DateTime
-  targetAudience       TargetAudience[]
-  isFree               Boolean            @default(true)
-  cost                 Decimal?           @db.Decimal(10, 2)
-  capacity             Int? // NOUVEAU : Nombre de places disponibles
-  registeredCount      Int                @default(0) // NOUVEAU : Compteur d'inscriptions
-  requiresRegistration Boolean            @default(false) // NOUVEAU
-  priority             Priority?          @default(LOW) // NOUVEAU 26/12/2025
-  viewsCount           Int                @default(0)
-  sharesCount          Int                @default(0)
-  commentsCount        Int                @default(0)
-  reactionsCount       Int                @default(0)
-  notificationsSent    Int                @default(0)
-  isPinned             Boolean            @default(false)
-  publishedAt          DateTime?
-  status               AnnouncementStatus @default(DRAFT)
-  suspensionReason     String?            @db.Text
-  suspendedBy          String?
-  deletedAt            DateTime?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-
-  // Relations
-  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  category         Category                   @relation(fields: [categoryId], references: [id])
-  location         Location?
-  comments         Comment[]
-  reactions        Reaction[]
-  bookmarks        Bookmark[]
-  media            Media[]
-  views            AnnouncementView[]
-  statistics       Statistic[]
-  notificationLogs NotificationLog[]
-  registrations    AnnouncementRegistration[] // NOUVEAU
-
-  @@map("announcements")
-}
-
-// NOUVEAU : Gestion des inscriptions aux annonces
-model AnnouncementRegistration {
-  id             String  @id @default(uuid())
-  announcementId String
-  userId         String? // NULL si visiteur non connecté
-
-  // ✅ AJOUT : ID de l'appareil (UUID généré par le navigateur)
-  // Cela permet de tracer un visiteur unique sur son appareil
-  deviceId String?
-
-  // Infos du visiteur non connecté (non uniques)
-  visitorName  String?
-  visitorPhone String?
-  visitorEmail String?
-
-  status             RegistrationStatus @default(PENDING)
-  confirmedAt        DateTime?
-  cancelledAt        DateTime?
-  cancellationReason String?            @db.Text
-  attendedAt         DateTime? // Date de présence effective
-  notes              String?            @db.Text
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-
-  // Relations
-  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // ✅ MODIFICATION DES CONTRAINTES D'UNICITÉ
-  // 1. Pour les utilisateurs connectés : 1 User = 1 Inscription
-  @@unique([announcementId, userId])
-  // 2. Pour les visiteurs (Non connectés) : 1 Appareil = 1 Inscription
-  // (On retire la contrainte sur visitorPhone pour permettre de changer d'info)
-  @@unique([announcementId, deviceId])
-  @@map("announcement_registrations")
-}
-
-model Article {
-  id               String        @id @default(uuid())
-  organizationId   String
-  categoryId       String
-  title            String
-  slug             String?       @unique
-  content          String        @db.Text
-  excerpt          String?
-  featuredImage    String
-  thumbnailImage   String?
-  author           String?
-  readingTime      Int?
-  tags             String[]      @default([])
-  viewsCount       Int           @default(0)
-  sharesCount      Int           @default(0)
-  commentsCount    Int           @default(0)
-  reactionsCount   Int           @default(0)
-  isFeatured       Boolean       @default(false)
-  publishedAt      DateTime?
-  status           ArticleStatus @default(DRAFT)
-  suspensionReason String?       @db.Text
-  suspendedBy      String?
-  deletedAt        DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  // Relations
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  category         Category          @relation(fields: [categoryId], references: [id])
-  comments         Comment[]
-  reactions        Reaction[]
-  bookmarks        Bookmark[]
-  media            Media[]
-  statistics       Statistic[]
-  notificationLogs NotificationLog[]
-
-  @@map("articles")
-}
-
-model Advice {
-  id             String           @id @default(uuid())
-  organizationId String
-  categoryId     String
-  title          String
-  content        String           @db.Text
-  icon           String?
-  reactionsCount Int              @default(0) // ← AJOUTER CETTE LIGNE
-  priority       Priority         @default(MEDIUM)
-  targetAudience TargetAudience[]
-  viewsCount     Int              @default(0)
-  sharesCount    Int              @default(0)
-  isActive       Boolean          @default(true)
-  publishedAt    DateTime?
-  status         AdviceStatus     @default(DRAFT)
-  deletedAt      DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  category     Category     @relation(fields: [categoryId], references: [id])
-  reactions    Reaction[]
-
-  @@map("advices")
-}
-
-model Comment {
-  id              String        @id @default(uuid())
-  userId          String
-  contentType     ContentType
-  contentId       String
-  parentCommentId String?
-  content         String        @db.Text
-  reactionsCount  Int           @default(0)
-  repliesCount    Int           @default(0)
-  isEdited        Boolean       @default(false)
-  editedAt        DateTime?
-  status          CommentStatus @default(VISIBLE)
-  hiddenBy        String?
-  hiddenReason    String?       @db.Text
-  deletedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  // Relations
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parentComment  Comment?      @relation("CommentReplies", fields: [parentCommentId], references: [id])
-  replies        Comment[]     @relation("CommentReplies")
-  reactions      Reaction[]
-  announcement   Announcement? @relation(fields: [announcementId], references: [id])
-  announcementId String?
-  article        Article?      @relation(fields: [articleId], references: [id])
-  articleId      String?
-
-  @@index([contentType, contentId])
-  @@map("comments")
-}
-
-model Reaction {
-  id          String       @id @default(uuid())
-  userId      String
-  contentType ContentType
-  contentId   String
-  type        ReactionType @default(LIKE)
-  createdAt   DateTime     @default(now())
-
-  // Relations
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  announcement Announcement? @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_reaction_announcement")
-  article      Article?      @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_reaction_article")
-  advice       Advice?       @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_reaction_advice")
-  comment      Comment?      @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_reaction_comment")
-
-  @@unique([userId, contentType, contentId])
-  @@index([contentType, contentId])
-  @@map("reactions")
-}
-
-model Location {
-  id               String      @id @default(uuid())
-  contentType      ContentType
-  contentId        String      @unique
-  address          String
-  city             String
-  region           String
-  latitude         Decimal     @db.Decimal(10, 8)
-  longitude        Decimal     @db.Decimal(11, 8)
-  placeId          String?
-  formattedAddress String?
-  additionalInfo   String?     @db.Text
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-
-  // Relations
-  announcement Announcement? @relation(fields: [contentId], references: [id], onDelete: Cascade)
-
-  @@map("locations")
-}
-
-model Media {
-  id                 String      @id @default(uuid())
-  uploadedBy         String
-  uploaderType       UserType
-  contentType        ContentType
-  contentId          String?
-  fileName           String
-  originalFileName   String
-  mimeType           String
-  fileSize           Int
-  url                String
-  thumbnailUrl       String?
-  width              Int?
-  height             Int?
-  cloudinaryPublicId String
-  status             MediaStatus @default(ACTIVE)
-  deletedAt          DateTime?
-  createdAt          DateTime    @default(now())
-
-  // Relations
-  announcement Announcement? @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_media_announcement")
-  article      Article?      @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_media_article")
-
-  @@index([uploadedBy, uploaderType])
-  @@map("media")
-}
-
-model UserPreference {
-  id                   String   @id @default(uuid())
-  userId               String   @unique
-  categories           String[] @default([])
-  organizations        String[] @default([])
-  cities               String[] @default([])
-  regions              String[] @default([])
-  notificationsEnabled Boolean  @default(true)
-  emailNotifications   Boolean  @default(true)
-  pushNotifications    Boolean  @default(true)
-  language             String   @default("FR")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_preferences")
-}
-
-model Notification {
-  id             String           @id @default(uuid())
-  userId         String
-  type           NotificationType
-  title          String
-  body           String
-  data           Json?
-  contentType    ContentType?
-  contentId      String?
-  imageUrl       String?
-  isRead         Boolean          @default(false)
-  readAt         DateTime?
-  isSent         Boolean          @default(false)
-  sentAt         DateTime?
-  deliveryStatus DeliveryStatus   @default(PENDING)
-  failureReason  String?          @db.Text
-  createdAt      DateTime         @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
-}
-
-model NotificationLog {
-  id              String   @id @default(uuid())
-  announcementId  String?
-  articleId       String?
-  totalRecipients Int
-  successCount    Int      @default(0)
-  failureCount    Int      @default(0)
-  sentBy          String
-  sentAt          DateTime @default(now())
-  fcmResponse     Json?
-  createdAt       DateTime @default(now())
-
-  // Relations
-  organization Organization  @relation(fields: [sentBy], references: [id], onDelete: Cascade)
-  announcement Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  article      Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade)
-
-  @@map("notification_logs")
-}
-
-model Bookmark {
-  id          String      @id @default(uuid())
-  userId      String
-  contentType ContentType
-  contentId   String
-  createdAt   DateTime    @default(now())
-
-  // Relations
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  announcement Announcement? @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_bookmark_announcement")
-  article      Article?      @relation(fields: [contentId], references: [id], onDelete: Cascade, map: "fk_bookmark_article")
-
-  @@unique([userId, contentType, contentId])
-  @@map("bookmarks")
-}
-
-model AuditLog {
-  id           String       @id @default(uuid())
-  actorType    ActorType
-  actorId      String
-  action       ActionType
-  resourceType ResourceType
-  resourceId   String?
-  changes      Json?
-  metadata     Json?
-  ipAddress    String?
-  userAgent    String?
-  status       AuditStatus  @default(SUCCESS)
-  errorMessage String?      @db.Text
-  createdAt    DateTime     @default(now())
-
-  @@index([actorType, actorId])
-  @@index([resourceType, resourceId])
-  @@map("audit_logs")
-}
-
-model Report {
-  id          String       @id @default(uuid())
-  reportedBy  String
-  contentType ContentType
-  contentId   String
-  reason      ReportReason
-  description String?      @db.Text
-  status      ReportStatus @default(PENDING)
-  reviewedBy  String?
-  reviewedAt  DateTime?
-  resolution  String?      @db.Text
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  // Relations
-  reporter User           @relation(fields: [reportedBy], references: [id], onDelete: Cascade)
-  reviewer Administrator? @relation(fields: [reviewedBy], references: [id])
-
-  @@map("reports")
-}
-
-model Session {
-  id              String     @id @default(uuid())
-  userType        UserType
-  organizationId  String? // Pour les Organizations
-  administratorId String?
-  userId          String?
-  accessToken     String     @unique
-  refreshToken    String     @unique
-  fcmToken        String?
-  ipAddress       String?
-  userAgent       String?
-  deviceType      DeviceType @default(WEB)
-  isActive        Boolean    @default(true)
-  expiresAt       DateTime
-  lastActivityAt  DateTime?
-  createdAt       DateTime   @default(now())
-
-  // Relations
-  user          User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization  Organization?  @relation(fields: [userId], references: [id], onDelete: Cascade, map: "fk_Session_organization")
-  administrator Administrator? @relation(fields: [userId], references: [id], onDelete: Cascade, map: "fk_Session_administrator")
-
-  // ✅ Index pour les recherches
-  @@index([userType, userId])
-  @@index([userType, organizationId])
-  @@index([userType, administratorId])
-  @@map("sessions")
-}
-
-model AnnouncementView {
-  id             String   @id @default(uuid())
-  announcementId String
-  userId         String?
-  ipAddress      String?
-  userAgent      String?
-  referrer       String?
-  viewDuration   Int?
-  createdAt      DateTime @default(now())
-
-  // Relations
-  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@index([announcementId])
-  @@map("announcement_views")
-}
-
-model Statistic {
-  id           String       @id @default(uuid())
-  resourceType ResourceType
-  resourceId   String
-  date         DateTime     @db.Date
-  views        Int          @default(0)
-  uniqueViews  Int          @default(0)
-  shares       Int          @default(0)
-  comments     Int          @default(0)
-  reactions    Int          @default(0)
-  createdAt    DateTime     @default(now())
-
-  // Relations
-  announcement Announcement? @relation(fields: [resourceId], references: [id], onDelete: Cascade, map: "fk_statistic_announcement")
-  article      Article?      @relation(fields: [resourceId], references: [id], onDelete: Cascade, map: "fk_statistic_article")
-
-  @@unique([resourceType, resourceId, date])
-  @@index([resourceType, resourceId])
-  @@map("statistics")
 }

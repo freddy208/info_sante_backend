@@ -1,5 +1,4 @@
 // src/users/entities/user.entity.ts
-
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserStatus, Gender } from '@prisma/client';
 
@@ -22,21 +21,15 @@ export class UserEntity {
   })
   email: string;
 
-  @ApiPropertyOptional({
-    description: 'Prénom',
-    example: 'John',
-  })
+  @ApiPropertyOptional({ description: 'Prénom', example: 'John' })
   firstName: string | null;
 
-  @ApiPropertyOptional({
-    description: 'Nom de famille',
-    example: 'Doe',
-  })
+  @ApiPropertyOptional({ description: 'Nom de famille', example: 'Doe' })
   lastName: string | null;
 
   @ApiPropertyOptional({
     description: 'Numéro de téléphone',
-    example: '+237 6 XX XX XX XX',
+    example: '+237612345678',
   })
   phone: string | null;
 
@@ -59,10 +52,7 @@ export class UserEntity {
   })
   gender: Gender | null;
 
-  @ApiPropertyOptional({
-    description: 'Ville de résidence',
-    example: 'Douala',
-  })
+  @ApiPropertyOptional({ description: 'Ville de résidence', example: 'Douala' })
   city: string | null;
 
   @ApiPropertyOptional({
@@ -71,16 +61,10 @@ export class UserEntity {
   })
   region: string | null;
 
-  @ApiProperty({
-    description: 'Email vérifié ?',
-    example: false,
-  })
+  @ApiProperty({ description: 'Email vérifié ?', example: false })
   isEmailVerified: boolean;
 
-  @ApiProperty({
-    description: 'Téléphone vérifié ?',
-    example: false,
-  })
+  @ApiProperty({ description: 'Téléphone vérifié ?', example: false })
   isPhoneVerified: boolean;
 
   @ApiProperty({
@@ -108,13 +92,6 @@ export class UserEntity {
   })
   updatedAt: Date;
 
-  /**
-   * Constructeur pour transformer un objet Prisma en UserEntity
-   *
-   * 🤔 POURQUOI ?
-   * Pour exclure automatiquement les champs sensibles (password, tokens)
-   * et ne retourner que les champs sûrs définis dans cette classe.
-   */
   constructor(partial: Partial<UserEntity>) {
     Object.assign(this, partial);
   }

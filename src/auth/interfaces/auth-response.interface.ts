@@ -1,12 +1,5 @@
-// src/auth/interfaces/auth-response.interface.ts
+import { UserStatus } from '@prisma/client';
 
-import { UserStatus } from '@prisma/client'; // ✅ Import de l'enum Prisma
-
-/**
- * 📤 AUTH RESPONSE INTERFACE
- *
- * Structure des réponses d'authentification.
- */
 export interface AuthResponse {
   accessToken: string;
   refreshToken: string;
@@ -20,5 +13,10 @@ export interface AuthResponse {
     status: UserStatus;
     city: string | null;
     region: string | null;
+    roles?: string[]; // pour RBAC
+    permissions?: string[]; // pour RBAC fin
+    lastLogin?: Date; // monitoring / session tracking
+    deviceId?: string; // multi-device tracking
+    sessionId?: string; // identifiant unique de session
   };
 }

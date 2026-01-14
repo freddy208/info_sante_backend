@@ -1,4 +1,12 @@
-import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsEnum,
+  IsInt,
+  Min,
+  Max,
+  IsBoolean,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { AnnouncementStatus } from '@prisma/client';
@@ -71,4 +79,13 @@ export class QueryAnnouncementDto {
   @IsEnum(AnnouncementStatus)
   @IsOptional()
   status?: AnnouncementStatus;
+
+  // ✅ AJOUT
+  @IsOptional()
+  isFree?: boolean | string;
+
+  // ✅ AJOUT (Logique backend: hasCapacity: true => registeredCount < capacity)
+  @IsOptional()
+  @IsBoolean()
+  hasCapacity?: boolean;
 }

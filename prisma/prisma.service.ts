@@ -49,19 +49,30 @@ export class PrismaService
    * Elle établit la connexion à la base de données.
    */
   async onModuleInit() {
-    try {
-      await this.$connect();
-      this.logger.log('✅ Connexion à la base de données établie avec succès');
-
-      // Afficher l'environnement actuel
-      const nodeEnv = this.configService.get('NODE_ENV');
-      this.logger.log(`🌍 Environnement : ${nodeEnv}`);
-    } catch (error) {
-      this.logger.error(
-        '❌ Erreur lors de la connexion à la base de données',
-        error,
-      );
-      throw error;
+    // Nombre de tentatives de reconnexion
+    let retries = 5;
+    while (retries > 0) {
+      try {
+        await this.$connect();
+        this.logger.log(
+          '✅ Connexion à la base de données établie avec succès',
+        );
+        break;
+      } catch (error) {
+        retries--;
+        this.logger.error(
+          `❌ Erreur de connexion (Tentatives restantes: ${retries})`,
+          error.message,
+        );
+        if (retries === 0) {
+          this.logger.error(
+            "Séquence d'initialisation échouée après 5 tentatives.",
+          );
+          // On ne throw plus forcément ici pour laisser l'app démarrer quand même
+        }
+        // Attendre 2 secondes avant de réessayer
+        await new Promise((res) => setTimeout(res, 2000));
+      }
     }
   }
 

@@ -391,7 +391,7 @@ async function main() {
         content:
           "Une augmentation des cas de choléra a été notifiée dans la région de Douala. Veuillez respecter strictement les mesures d'hygiène et consommer uniquement de l'eau traitée.",
         excerpt: "Augmentation des cas à Douala. Respectez l'hygiène.",
-        featuredImage: 'https://via.placeholder.com/800x400?text=Cholera',
+        featuredImage: 'covid-symptoms',
         startDate: new Date(),
         endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 jours
         isFree: true,
@@ -420,7 +420,7 @@ async function main() {
           Vaccination gratuite mais places limitées à 100 personnes.
         `,
         excerpt: 'Vaccination gratuite. Places limitées, inscrivez-vous !',
-        featuredImage: 'https://via.placeholder.com/800x400?text=Vaccination',
+        featuredImage: 'child-vaccination',
         startDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // Dans 5 jours
         endDate: new Date(
           Date.now() + 5 * 24 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000,
@@ -451,7 +451,7 @@ async function main() {
           Participation : 15 000 FCFA.
         `,
         excerpt: 'Formation aux gestes de premiers secours. 15 000 FCFA.',
-        featuredImage: 'https://via.placeholder.com/800x400?text=Secours',
+        featuredImage: 'hiv-awareness',
         startDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         endDate: new Date(
           Date.now() + 14 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000,
@@ -547,7 +547,7 @@ async function main() {
         `,
         excerpt:
           'Apprenez à composer vos repas avec les produits locaux pour une meilleure santé.',
-        featuredImage: 'https://via.placeholder.com/800x400?text=Alimentation',
+        featuredImage: 'malaria-prevention',
         thumbnailImage: 'https://via.placeholder.com/200x200?text=Nutrition',
         author: 'Nutritionniste Sarah N.',
         readingTime: 4,
@@ -580,7 +580,7 @@ async function main() {
         `,
         excerpt:
           "Comment se protéger de l'HTA ? Les conseils du service cardiologie.",
-        featuredImage: 'https://via.placeholder.com/800x400?text=Hypertension',
+        featuredImage: 'medicinal-plants',
         thumbnailImage: 'https://via.placeholder.com/200x200?text=Coeur',
         author: 'Dr. Kouam Jean',
         readingTime: 6,
@@ -611,7 +611,7 @@ async function main() {
         `,
         excerpt:
           "Tout savoir sur les bénéfices de l'allaitement pour la mère et l'enfant.",
-        featuredImage: 'https://via.placeholder.com/800x400?text=Allaitement',
+        featuredImage: 'local-foods',
         thumbnailImage: 'https://via.placeholder.com/200x200?text=Bebe',
         author: 'Sage-femme Clarisse M.',
         readingTime: 5,
@@ -644,7 +644,7 @@ async function main() {
         `,
         excerpt:
           'Bouger pour se sentir mieux : une médecine douce et efficace.',
-        featuredImage: 'https://via.placeholder.com/800x400?text=Sport',
+        featuredImage: 'prenatal-care',
         thumbnailImage: 'https://via.placeholder.com/200x200?text=Sport',
         author: 'Dr. Paul T.',
         readingTime: 3,

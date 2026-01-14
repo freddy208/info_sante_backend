@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -14,6 +16,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CategoryEntity } from './entities/category.entity';
 import { PrismaService } from 'prisma/prisma.service';
+import { AnnouncementStatus } from '@prisma/client';
 
 /**
  * 📂 CATEGORIES SERVICE
@@ -140,6 +143,10 @@ export class CategoriesService {
    * @param includeChildren - Inclure les sous-catégories
    * @param parentOnly - Uniquement les catégories parentes
    */
+  // src/categories/categories.service.ts
+
+  // 1. Assurez-vous d'importer AnnouncementStatus pour filtrer correctement
+
   async findAll(
     page: number = 1,
     limit: number = 50,
@@ -147,26 +154,25 @@ export class CategoriesService {
     includeChildren: boolean = true,
     parentOnly: boolean = false,
   ) {
+    // ... (logique de pagination inchangée) ...
     if (page < 1) page = 1;
     if (limit < 1 || limit > 100) limit = 50;
-
     const skip = (page - 1) * limit;
+    const where: any = {
+      /* ... filtres existants ... */
+    };
 
-    // Construction du filtre WHERE
-    const where: any = {};
-
-    // ✅ Par défaut, montrer seulement les catégories actives
     if (isActive !== undefined) {
       where.isActive = isActive;
     } else {
-      where.isActive = true; // ✅ DÉFAUT : Seulement les actives
+      where.isActive = true;
     }
 
     if (parentOnly) {
-      where.parentId = null; // Seulement les catégories de niveau 1
+      where.parentId = null;
     }
 
-    // Récupérer les catégories
+    // ✅ MODIFICATION ICI : Récupérer les catégories avec un compteur dynamique
     const [categories, total] = await Promise.all([
       this.prisma.category.findMany({
         where,
@@ -177,18 +183,47 @@ export class CategoriesService {
           parent: true,
           children: includeChildren
             ? {
-                where: { isActive: true }, // ✅ Seulement les enfants actifs
+                where: { isActive: true },
                 orderBy: [{ order: 'asc' }, { name: 'asc' }],
               }
             : false,
+
+          // ✅ AJOUT CRITIQUE : Compter les annonces en temps réel
+          // On ne compte que les PUBLISHED et non expirées
+          _count: {
+            select: {
+              announcements: {
+                where: {
+                  status: AnnouncementStatus.PUBLISHED,
+                  endDate: { gte: new Date() },
+                },
+              },
+            },
+          },
         },
       }),
       this.prisma.category.count({ where }),
     ]);
 
-    const categoryEntities = categories.map(
-      (cat) => new CategoryEntity(cat as any),
-    );
+    // ✅ MODIFICATION ICI : Mapper les données pour correspondre au Frontend
+    // Le frontend attend une propriété plate `announcementsCount`, pas `_count.announcements`
+    const categoryEntities = categories.map((cat) => {
+      const entity = new CategoryEntity(cat as any);
+      // On écrase la valeur de la base (qui vaut 0) par la valeur calculée dynamiquement
+      (entity as any).announcementsCount = cat._count?.announcements || 0;
+
+      // Faire de même pour les enfants si ils existent
+      if (entity.children && entity.children.length > 0) {
+        (entity as any).children = (entity as any).children.map(
+          (child: any) => ({
+            ...child,
+            announcementsCount: child._count?.announcements || 0,
+          }),
+        );
+      }
+
+      return entity;
+    });
 
     const totalPages = Math.ceil(total / limit);
 

@@ -1,5 +1,4 @@
 // src/users/dto/update-password.dto.ts
-
 import {
   IsString,
   IsNotEmpty,
@@ -38,9 +37,12 @@ export class UpdatePasswordDto {
   @MaxLength(100, {
     message: 'Le nouveau mot de passe ne peut pas dépasser 100 caractères',
   })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message:
-      'Le nouveau mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial',
-  })
+  @Matches(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+    {
+      message:
+        'Le nouveau mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial',
+    },
+  )
   newPassword: string;
 }
