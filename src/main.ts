@@ -37,6 +37,9 @@ async function bootstrap() {
   });
   // 4. Ajouter préfixe global aux routes API
   const apiPrefix = configService.get('API_PREFIX') || 'api/v1';
+  app.setGlobalPrefix(apiPrefix, {
+    exclude: ['/'], // Permet à Swagger de prendre la racine
+  });
   app.setGlobalPrefix(apiPrefix);
 
   // 5. Activer validation automatique globale
@@ -118,15 +121,15 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
 
   // Monter Swagger sur /api/docs
-  SwaggerModule.setup('api/docs', app, document, {
+  // ✅ Swagger sera maintenant disponible sur https://votre-url.render.com/
+  SwaggerModule.setup('', app, document, {
     swaggerOptions: {
-      persistAuthorization: true, // Garde le token en mémoire
-      docExpansion: 'none', // Tous les endpoints sont fermés par défaut
-      filter: true, // Active la recherche
-      showRequestDuration: true, // Affiche la durée des requêtes
+      persistAuthorization: true,
+      docExpansion: 'none',
+      filter: true,
+      showRequestDuration: true,
     },
   });
-
   // 7. Démarrer le serveur
   const port = configService.get<number>('PORT') || 3001;
   await app.listen(port, '0.0.0.0');
