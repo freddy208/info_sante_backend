@@ -1,3 +1,7 @@
+/* eslint-disable prettier/prettier */
+ 
+ 
+ 
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 // src/prisma/prisma.service.ts
@@ -10,6 +14,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 /**
  * 🗄️ PRISMA SERVICE
@@ -27,18 +33,26 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor(private configService: ConfigService) {
-    // Appeler le constructeur parent avec les options
-    super({
-      log: [
-        { emit: 'event', level: 'query' }, // Logs des requêtes SQL
-        { emit: 'event', level: 'error' }, // Logs des erreurs
-        { emit: 'event', level: 'info' }, // Logs d'info
-        { emit: 'event', level: 'warn' }, // Logs d'avertissement
-      ],
-      errorFormat: 'pretty', // Format d'erreur lisible
+  // 1. On prépare le pool de connexion PostgreSQL
+    const pool = new Pool({
+      connectionString: configService.get<string>('DATABASE_URL'),
     });
 
-    // Attacher les event listeners pour le logging
+    // 2. On crée l'adapter pour Prisma 7
+    const adapter = new PrismaPg(pool);
+
+    // 3. On appelle le constructeur parent en lui PASSANT l'adapter
+    super({
+      adapter: adapter, // C'EST CETTE LIGNE QUI MANQUAIT
+      log: [
+        { emit: 'event', level: 'query' },
+        { emit: 'event', level: 'error' },
+        { emit: 'event', level: 'info' },
+        { emit: 'event', level: 'warn' },
+      ],
+      errorFormat: 'pretty',
+    });
+
     this.attachLogListeners();
   }
 

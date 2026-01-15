@@ -1,3 +1,6 @@
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Injectable,
@@ -23,7 +26,7 @@ import {
   ResourceType,
   AuditStatus,
 } from '@prisma/client';
-import { InputJsonValue } from '@prisma/client/runtime/library';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from 'prisma/prisma.service';
 import { randomBytes } from 'crypto';
 import { MailService } from 'src/mail/mail.service';
@@ -41,8 +44,8 @@ interface CreateAuditLogData {
   resourceType: ResourceType;
   resourceId?: string;
   status?: AuditStatus;
-  changes?: InputJsonValue;
-  metadata?: InputJsonValue;
+  changes?: Prisma.InputJsonValue; // <--- ICI
+  metadata?: Prisma.InputJsonValue; // <--- ET ICI
   ipAddress?: string;
   errorMessage?: string;
 }
@@ -129,7 +132,7 @@ export class AuthService {
         resourceType: ResourceType.USER,
         resourceId: user.id,
         status: AuditStatus.SUCCESS,
-        metadata: { email: user.email, source: 'WEB' } as InputJsonValue,
+        metadata: { email: user.email, source: 'WEB' } as Prisma.InputJsonValue,
       });
 
       this.logger.log(`✅ Nouvel utilisateur : ${user.email}`);
@@ -228,7 +231,7 @@ export class AuthService {
         resourceType: ResourceType.USER,
         resourceId: user.id,
         status: AuditStatus.FAILURE,
-        metadata: { reason: 'Invalid password', ipAddress } as InputJsonValue,
+        metadata: { reason: 'Invalid password', ipAddress } as Prisma.InputJsonValue,
       });
       throw new UnauthorizedException('Email ou mot de passe incorrect');
     }
@@ -247,7 +250,7 @@ export class AuthService {
       resourceType: ResourceType.USER,
       resourceId: user.id,
       status: AuditStatus.SUCCESS,
-      metadata: { ipAddress } as InputJsonValue,
+      metadata: { ipAddress } as Prisma.InputJsonValue,
     });
 
     this.logger.log(`✅ Connexion : ${user.email}`);
@@ -421,7 +424,7 @@ export class AuthService {
       resourceType: ResourceType.USER,
       resourceId: user.id,
       status: AuditStatus.SUCCESS,
-      metadata: { reason: 'Password Reset' } as InputJsonValue,
+      metadata: { reason: 'Password Reset' } as Prisma.InputJsonValue,
     });
 
     this.logger.log(`✅ Mot de passe réinitialisé : ${email}`);
