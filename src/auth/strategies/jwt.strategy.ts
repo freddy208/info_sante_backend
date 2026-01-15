@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 // src/auth/strategies/jwt.strategy.ts
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
@@ -6,7 +8,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayloadData } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from 'prisma/prisma.service';
-import { REDIS_CLIENT } from 'src/redis/redis.module';
+import { REDIS_CLIENT } from 'src/redis/redis.constants';
 import Redis from 'ioredis';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {

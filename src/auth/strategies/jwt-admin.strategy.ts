@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
@@ -11,7 +13,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { JwtPayloadData } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from 'prisma/prisma.service';
-import { REDIS_CLIENT } from 'src/redis/redis.module';
+import { REDIS_CLIENT } from 'src/redis/redis.constants';
 import Redis from 'ioredis';
 
 @Injectable()

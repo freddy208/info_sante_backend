@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -35,7 +37,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from 'prisma/prisma.service';
 import { Inject } from '@nestjs/common';
-import { REDIS_CLIENT } from '../redis/redis.module';
+import { REDIS_CLIENT } from 'src/redis/redis.constants';
 import Redis from 'ioredis';
 import { OrganizationSearchRow } from './types/organization-search-row.type';
 
