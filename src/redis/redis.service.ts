@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Injectable, OnModuleDestroy, Inject } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { REDIS_CLIENT } from './redis.module'; // Assure-toi que le chemin est correct
+import { REDIS_CLIENT } from './redis.constants'; // Assure-toi que le chemin est correct
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
