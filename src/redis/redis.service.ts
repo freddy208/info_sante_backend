@@ -1,22 +1,28 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { Injectable, OnModuleDestroy, Inject } from '@nestjs/common';
 import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from './redis.module'; // Assure-toi que le chemin est correct
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
-  private readonly client: Redis;
+  // On demande à NestJS de nous donner le client REDIS_CLIENT déjà configuré
+  constructor(@Inject(REDIS_CLIENT) private readonly client: Redis) {}
 
-  constructor() {
-    this.client = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: Number(process.env.REDIS_PORT) || 6379,
-    });
-  }
-
+  /**
+   * Retourne l'instance du client Redis
+   */
   getClient(): Redis {
     return this.client;
   }
 
+  /**
+   * Ferme proprement la connexion lors de l'arrêt de l'application
+   */
   async onModuleDestroy() {
-    await this.client.quit();
+    try {
+      await this.client.quit();
+    } catch (error) {
+      // Évite de faire planter l'arrêt si la connexion était déjà perdue
+    }
   }
 }

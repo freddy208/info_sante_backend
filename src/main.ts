@@ -40,7 +40,6 @@ async function bootstrap() {
   app.setGlobalPrefix(apiPrefix, {
     exclude: ['/'], // Permet à Swagger de prendre la racine
   });
-  app.setGlobalPrefix(apiPrefix);
 
   // 5. Activer validation automatique globale
   app.useGlobalPipes(
@@ -70,8 +69,6 @@ async function bootstrap() {
       - 📰 Articles et conseils santé
       - 🔔 Notifications (Push, Email, SMS)
       - 📁 Upload de fichiers
-      
-      **Base URL:** \`http://localhost:3001/${apiPrefix}\`
       `,
     )
     .setVersion('1.0')
