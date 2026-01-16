@@ -1,10 +1,9 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable no-prototype-builtins */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
  
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+ 
 
 import {
   Injectable,
@@ -15,7 +14,7 @@ import {
 import { PrismaService } from 'prisma/prisma.service';
 import { CreateReactionDto, QueryReactionDto } from './dto';
 import { ReactionEntity } from './entities';
-import { ContentType, Prisma, ReactionType } from '@prisma/client';
+import { ContentType, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ReactionService {
@@ -26,7 +25,7 @@ export class ReactionService {
   // =====================================
   // ❤️ AJOUTER UNE RÉACTION (ATOMIC)
   // =====================================
- async create(
+  async create(
     createReactionDto: CreateReactionDto,
     userId: string,
   ): Promise<ReactionEntity | null> {
@@ -41,11 +40,11 @@ export class ReactionService {
         // 1. Validation de l'existence du contenu
         await this.validateContentExists(tx, contentType, contentId);
 
-        // 2. Préparation du filtre (On déclare contentField UNE SEULE FOIS ici)
+        // 2. Préparation du filtre
         const contentField = this.getContentFieldName(contentType);
-        const whereClause: Prisma.ReactionWhereInput = { 
+        const whereClause: Prisma.ReactionWhereInput = {
           userId,
-          [contentField]: contentId 
+          [contentField]: contentId,
         };
 
         // 3. Recherche d'une réaction existante
@@ -68,14 +67,14 @@ export class ReactionService {
           return new ReactionEntity(this.transformReactionData(updated));
         }
 
-        // Cas C : Nouvelle réaction (On n'utilise plus 'const contentField' ici, elle existe déjà)
+        // Cas C : Nouvelle réaction
         const reaction = await tx.reaction.create({
           data: {
             type,
-            contentType, 
+            contentType,
             user: { connect: { id: userId } },
-            // On utilise toLowerCase() pour correspondre au nom de la relation Prisma (ex: announcement)
-            [contentType.toLowerCase()]: { connect: { id: contentId } }
+            // Utilise le nom de la relation Prisma (ex: organization, announcement)
+            [contentType.toLowerCase()]: { connect: { id: contentId } },
           },
         });
 
@@ -89,9 +88,9 @@ export class ReactionService {
     }
   }
 
-  // =====================================
-  // 📋 LISTE DES RÉACTIONS
-  // =====================================
+  // Les méthodes findAll et getReactionStats restent identiques car elles utilisent déjà 
+  // dynamiquement getContentFieldName que nous avons mis à jour ci-dessous.
+
   async findAll(query: QueryReactionDto) {
     const { page = 1, limit = 20, contentType, contentId, type } = query;
     const skip = (page - 1) * limit;
@@ -99,7 +98,6 @@ export class ReactionService {
     const where: Prisma.ReactionWhereInput = {};
     if (type) where.type = type;
 
-    // Correction des filtres dynamiques
     if (contentType && contentId) {
       const field = this.getContentFieldName(contentType);
       where[field] = contentId;
@@ -130,9 +128,6 @@ export class ReactionService {
     };
   }
 
-  // =====================================
-  // 📊 STATISTIQUES PAR TYPE
-  // =====================================
   async getReactionStats(contentType: ContentType, contentId: string) {
     const where: Prisma.ReactionWhereInput = {};
     const field = this.getContentFieldName(contentType);
@@ -159,7 +154,7 @@ export class ReactionService {
   }
 
   // =====================================
-  // 🔧 UTILITAIRES PRIVÉS
+  // 🔧 UTILITAIRES PRIVÉS (MIS À JOUR)
   // =====================================
 
   private getContentFieldName(contentType: ContentType): string {
@@ -172,6 +167,8 @@ export class ReactionService {
         return 'adviceId';
       case ContentType.COMMENT:
         return 'commentId';
+      case ContentType.ORGANIZATION: // ✅ Ajouté
+        return 'organizationId';
       default:
         throw new BadRequestException('Type de contenu non supporté');
     }
@@ -184,16 +181,20 @@ export class ReactionService {
     increment: number,
   ) {
     const data = { reactionsCount: { increment } };
-    const field = this.getContentFieldName(type);
 
     if (type === ContentType.ANNOUNCEMENT)
       await tx.announcement.update({ where: { id }, data });
-    if (type === ContentType.ARTICLE)
+    else if (type === ContentType.ARTICLE)
       await tx.article.update({ where: { id }, data });
-    if (type === ContentType.ADVICE)
+    else if (type === ContentType.ADVICE)
       await tx.advice.update({ where: { id }, data });
-    if (type === ContentType.COMMENT)
+    else if (type === ContentType.COMMENT)
       await tx.comment.update({ where: { id }, data });
+    else if (type === ContentType.ORGANIZATION) // ✅ Ajouté (Utilise 'rating' ou un nouveau champ 'totalReactions' si tu l'as ajouté)
+      await tx.organization.update({ 
+        where: { id }, 
+        data: { totalReviews: { increment } } // Utilisation de totalReviews pour l'instant
+      });
   }
 
   private async validateContentExists(
@@ -206,25 +207,28 @@ export class ReactionService {
       content = await tx.announcement.findUnique({
         where: { id, status: 'PUBLISHED' },
       });
-    if (type === ContentType.ARTICLE)
+    else if (type === ContentType.ARTICLE)
       content = await tx.article.findUnique({
         where: { id, status: 'PUBLISHED' },
       });
-    if (type === ContentType.ADVICE)
+    else if (type === ContentType.ADVICE)
       content = await tx.advice.findUnique({
         where: { id, status: 'PUBLISHED' },
       });
-    if (type === ContentType.COMMENT)
+    else if (type === ContentType.COMMENT)
       content = await tx.comment.findUnique({
         where: { id, status: 'VISIBLE' },
       });
+    else if (type === ContentType.ORGANIZATION) // ✅ Ajouté
+      content = await tx.organization.findUnique({
+        where: { id, status: 'ACTIVE' },
+      });
 
     if (!content)
-      throw new NotFoundException('Contenu introuvable ou non publié');
+      throw new NotFoundException('Contenu introuvable ou indisponible');
   }
 
   private transformReactionData(reaction: any): any {
-    const transformed = { ...reaction };
-    return transformed;
+    return { ...reaction };
   }
 }

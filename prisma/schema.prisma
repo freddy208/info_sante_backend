@@ -1,5 +1,5 @@
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
 }
 
 generator client {
@@ -25,7 +25,7 @@ model User {
   passwordResetToken     String?
   passwordResetExpires   DateTime?
   fcmTokens              String[]                   @default([])
-  hashedRefreshToken String?
+  hashedRefreshToken     String?
   lastLoginAt            DateTime?
   lastLoginIp            String?
   status                 UserStatus                 @default(ACTIVE)
@@ -94,6 +94,9 @@ model Organization {
   suspender          Administrator?           @relation("OrganizationSuspender", fields: [suspendedBy], references: [id])
   verifier           Administrator?           @relation("OrganizationVerifier", fields: [verifiedBy], references: [id])
   sessions           Session[]
+  comments           Comment[]                @relation("CommentOrganization")
+  reactions          Reaction[]               @relation("ReactionOrganization")
+  bookmarks          Bookmark[]               @relation("BookmarkOrganization")
 
   @@index([latitude, longitude])
   @@index([status, type])
@@ -112,6 +115,9 @@ model OrganizationMember {
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  reactions      Reaction[]   @relation("ReactionOrganizationMember")
+  comments       Comment[]    @relation("CommentOrganizationMember")
+  bookmarks      Bookmark[]   @relation("BookmarkOrganizationMember")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, email])
@@ -282,7 +288,7 @@ model Announcement {
   location             Location?
   media                Media[]
   notificationLogs     NotificationLog[]
-  reactions            Reaction[]                  @relation("ReactionAnnouncement")
+  reactions            Reaction[]                 @relation("ReactionAnnouncement")
   statistics           Statistic[]
 
   @@index([status, publishedAt])
@@ -350,7 +356,7 @@ model Article {
   comments         Comment[]
   media            Media[]
   notificationLogs NotificationLog[]
-  reactions        Reaction[]     @relation("ReactionArticle")
+  reactions        Reaction[]               @relation("ReactionArticle")
   statistics       Statistic[]
 
   @@index([status, publishedAt])
@@ -361,28 +367,28 @@ model Article {
 }
 
 model Advice {
-  id             String           @id @default(uuid())
+  id             String                   @id @default(uuid())
   organizationId String
   categoryId     String
   title          String
   content        String
   icon           String?
-  priority       Priority         @default(MEDIUM)
+  priority       Priority                 @default(MEDIUM)
   targetAudience TargetAudience[]
-  viewsCount     Int              @default(0)
-  sharesCount    Int              @default(0)
-  commentsCount  Int              @default(0)
-  isActive       Boolean          @default(true)
+  viewsCount     Int                      @default(0)
+  sharesCount    Int                      @default(0)
+  commentsCount  Int                      @default(0)
+  isActive       Boolean                  @default(true)
   publishedAt    DateTime?
-  status         AdviceStatus     @default(DRAFT)
+  status         AdviceStatus             @default(DRAFT)
   deletedAt      DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  reactionsCount Int              @default(0)
-  search_vector Unsupported("tsvector")?
-  category       Category         @relation(fields: [categoryId], references: [id])
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  reactions      Reaction[]      @relation("ReactionAdvice")
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  reactionsCount Int                      @default(0)
+  search_vector  Unsupported("tsvector")?
+  category       Category                 @relation(fields: [categoryId], references: [id])
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reactions      Reaction[]               @relation("ReactionAdvice")
   comments       Comment[]
   bookmarks      Bookmark[]
 
@@ -393,75 +399,87 @@ model Advice {
 }
 
 model Comment {
-  id              String        @id @default(uuid())
-  userId          String
-  contentType     ContentType
+  id          String      @id @default(uuid())
+  userId      String
+  contentType ContentType
   // On garde contentId uniquement si vous voulez l'utiliser pour d'autres types non reliés, 
   // mais il vaut mieux privilégier les colonnes ci-dessous pour la DB :
-  contentId       String        
+  contentId   String
 
-  content         String
-  reactionsCount  Int           @default(0)
-  repliesCount    Int           @default(0)
-  isEdited        Boolean       @default(false)
-  editedAt        DateTime?
-  status          CommentStatus @default(VISIBLE)
-  
-  createdAt       DateTime      @default(now())
+  content        String
+  reactionsCount Int           @default(0)
+  repliesCount   Int           @default(0)
+  isEdited       Boolean       @default(false)
+  editedAt       DateTime?
+  status         CommentStatus @default(VISIBLE)
+
+  createdAt DateTime  @default(now())
   deletedAt DateTime? // Ajoutez cette ligne
-  updatedAt       DateTime      @updatedAt
+  updatedAt DateTime  @updatedAt
 
   // ✅ Relations explicites pour éviter les conflits SQL
-  announcementId  String?
-  articleId       String?
-  adviceId        String?
+  announcementId String?
+  articleId      String?
+  adviceId       String?
+  organizationId String? // ✅ Ajouté
 
-  advice          Advice?       @relation(fields: [adviceId], references: [id], onDelete: Cascade)
+  advice          Advice? @relation(fields: [adviceId], references: [id], onDelete: Cascade)
   parentCommentId String?
 
   // ✅ Mapping des relations
-  announcement    Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-  article         Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  parentComment   Comment?      @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
-  replies         Comment[]     @relation("CommentReplies")
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reactions       Reaction[]     @relation("ReactionComment")
+  announcement  Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  article       Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  parentComment Comment?      @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  organization  Organization? @relation("CommentOrganization", fields: [organizationId], references: [id], onDelete: Cascade) // ✅ Ajouté
+  replies       Comment[]     @relation("CommentReplies")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions     Reaction[]    @relation("ReactionComment")
+
+  organizationMember   OrganizationMember? @relation("CommentOrganizationMember", fields: [organizationMemberId], references: [id])
+  organizationMemberId String?
 
   @@index([announcementId])
   @@index([articleId])
   @@index([parentCommentId])
   @@index([adviceId])
   @@index([contentType, contentId]) // Gardé pour la compatibilité des requêtes rapides
+  @@index([organizationId])
   @@map("comments")
 }
 
 model Reaction {
-  id             String       @id @default(uuid())
-  userId         String
-  type           ReactionType @default(LIKE)
-  
+  id     String       @id @default(uuid())
+  userId String
+  type   ReactionType @default(LIKE)
+
   // Ajoutez cette ligne pour catégoriser la réaction
-  contentType    ContentType  
+  contentType ContentType
 
   announcementId String?
   articleId      String?
   commentId      String?
   adviceId       String?
+  organizationId String? // ✅ Ajouté
 
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  announcement   Announcement? @relation("ReactionAnnouncement", fields: [announcementId], references: [id], onDelete: Cascade)
-  article        Article?      @relation("ReactionArticle", fields: [articleId], references: [id], onDelete: Cascade)
-  comment        Comment?       @relation("ReactionComment", fields: [commentId], references: [id], onDelete: Cascade)
-  advice         Advice?        @relation("ReactionAdvice", fields: [adviceId], references: [id], onDelete: Cascade)
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement Announcement? @relation("ReactionAnnouncement", fields: [announcementId], references: [id], onDelete: Cascade)
+  article      Article?      @relation("ReactionArticle", fields: [articleId], references: [id], onDelete: Cascade)
+  comment      Comment?      @relation("ReactionComment", fields: [commentId], references: [id], onDelete: Cascade)
+  organization Organization? @relation("ReactionOrganization", fields: [organizationId], references: [id], onDelete: Cascade) // ✅ Ajouté
+  advice       Advice?       @relation("ReactionAdvice", fields: [adviceId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationMember   OrganizationMember? @relation("ReactionOrganizationMember", fields: [organizationMemberId], references: [id])
+  organizationMemberId String?
 
   // Index uniques pour éviter les doublons
   @@unique([userId, announcementId])
   @@unique([userId, articleId])
   @@unique([userId, commentId])
+  @@unique([userId, organizationId])
   @@unique([userId, adviceId])
   @@map("reactions")
 }
@@ -503,9 +521,8 @@ model Media {
   deletedAt          DateTime?
   createdAt          DateTime      @default(now())
   uploaderType       UserType
-  announcement Announcement? @relation(fields: [contentId], references: [id], map: "media_announcement")
-  article      Article?      @relation(fields: [contentId], references: [id], map: "media_article")
-
+  announcement       Announcement? @relation(fields: [contentId], references: [id], map: "media_announcement")
+  article            Article?      @relation(fields: [contentId], references: [id], map: "media_article")
 
   @@index([uploadedBy, uploaderType])
   @@map("media")
@@ -571,29 +588,33 @@ model NotificationLog {
 }
 
 model Bookmark {
-  id             String      @id @default(uuid())
-  userId         String
-  contentType    ContentType
-  createdAt      DateTime    @default(now())
+  id          String      @id @default(uuid())
+  userId      String
+  contentType ContentType
+  createdAt   DateTime    @default(now())
 
   // ✅ On utilise uniquement ces colonnes pour les relations
   announcementId String?
   articleId      String?
   adviceId       String?
+  organizationId String? // ✅ Ajouté
 
-  advice         Advice?       @relation(fields: [adviceId], references: [id], onDelete: Cascade)
+  advice Advice? @relation(fields: [adviceId], references: [id], onDelete: Cascade)
 
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  announcement   Announcement? @relation(fields: [announcementId], references: [id], onDelete: Cascade, map: "bookmark_announcement_fkey")
-  article        Article?      @relation(fields: [articleId], references: [id], onDelete: Cascade, map: "bookmark_article_fkey")
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement         Announcement?       @relation(fields: [announcementId], references: [id], onDelete: Cascade, map: "bookmark_announcement_fkey")
+  article              Article?            @relation(fields: [articleId], references: [id], onDelete: Cascade, map: "bookmark_article_fkey")
+  organization         Organization?       @relation("BookmarkOrganization", fields: [organizationId], references: [id], onDelete: Cascade) // ✅ Ajouté
+  organizationMember   OrganizationMember? @relation("BookmarkOrganizationMember", fields: [organizationMemberId], references: [id])
+  organizationMemberId String?
 
   // ✅ Mise à jour de l'index unique pour refléter la nouvelle structure
   @@unique([userId, contentType, announcementId])
   @@unique([userId, contentType, articleId])
-  
+  @@unique([userId, contentType, adviceId])
+  @@unique([userId, contentType, organizationId]) // ✅ Ajouté
   @@index([userId, contentType])
   @@index([userId, createdAt])
-  @@unique([userId, contentType, adviceId])
   @@map("bookmarks")
 }
 
@@ -638,27 +659,25 @@ model Report {
 }
 
 model Session {
-  id              String         @id @default(uuid())
+  id              String     @id @default(uuid())
   userType        UserType
   userId          String?
-  accessToken     String         @unique
-  refreshToken    String         @unique
+  accessToken     String     @unique
+  refreshToken    String     @unique
   fcmToken        String?
   ipAddress       String?
   userAgent       String?
-  deviceType      DeviceType     @default(WEB)
-  isActive        Boolean        @default(true)
+  deviceType      DeviceType @default(WEB)
+  isActive        Boolean    @default(true)
   expiresAt       DateTime
   lastActivityAt  DateTime?
-  createdAt       DateTime       @default(now())
+  createdAt       DateTime   @default(now())
   administratorId String?
   organizationId  String?
 
   user          User?          @relation(fields: [userId], references: [id], map: "session_user")
-  organization  Organization? @relation(fields: [userId], references: [id], map: "session_org")
+  organization  Organization?  @relation(fields: [userId], references: [id], map: "session_org")
   administrator Administrator? @relation(fields: [userId], references: [id], map: "session_admin")
-
-  
 
   @@index([userType, userId])
   @@index([userType, organizationId])
@@ -703,8 +722,6 @@ model Statistic {
   @@index([resourceType, resourceId])
   @@map("statistics")
 }
-
-
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model spatial_ref_sys {
@@ -912,7 +929,6 @@ enum ActionType {
   UNHIDE
   REGISTER_TO_ANNOUNCEMENT
 }
-
 
 enum AuditStatus {
   SUCCESS

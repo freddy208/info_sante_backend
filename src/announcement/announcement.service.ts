@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -52,7 +51,7 @@ export class AnnouncementService {
 
     try {
       const announcement = await this.prisma.announcement.create({
-        data: { ...createAnnouncementDto, organizationId, slug, status: AnnouncementStatus.DRAFT },
+        data: { ...createAnnouncementDto, organizationId, slug, status: AnnouncementStatus.PUBLISHED },
         include: {
           organization: { select: { id: true, name: true, logo: true } },
           category: { select: { id: true, name: true, slug: true } },

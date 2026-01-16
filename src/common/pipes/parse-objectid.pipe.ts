@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 // src/common/pipes/parse-objectid.pipe.ts
 
 import {

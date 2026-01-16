@@ -570,6 +570,40 @@ export class OrganizationsController {
     );
   }
 
+  @Public()
+  @Get('search')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Recherche avancée des organisations (Full-Text)',
+    description: `
+    Recherche performante des organisations avec PostgreSQL Full-Text Search (tsvector)
+    et cache Redis.
+
+    **Fonctionnalités :**
+    - Recherche textuelle avancée (nom, description)
+    - Classement par pertinence (rank)
+    - Filtres ville / région
+    - Cache Redis (5 minutes)
+
+    **Exemples :**
+    - /organizations/search?q=hôpital
+    - /organizations/search?q=clinique&city=Douala
+    - /organizations/search?q=laquintinie&page=2
+  `,
+  })
+  @ApiQuery({ name: 'q', required: false, type: String })
+  @ApiQuery({ name: 'city', required: false, type: String })
+  @ApiQuery({ name: 'region', required: false, type: String })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Résultats de recherche',
+  })
+  async searchOrganizations(@Query() query: SearchOrganizationsDto) {
+    return this.organizationsService.searchOrganizations(query);
+  }
+
   // =====================================
   // 🔍 DÉTAILS D'UNE ORGANISATION (PUBLIC)
   // =====================================
@@ -766,39 +800,5 @@ export class OrganizationsController {
     @Param('id') memberId: string,
   ) {
     return this.organizationsService.removeMember(organizationId, memberId);
-  }
-
-  @Public()
-  @Get('search')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Recherche avancée des organisations (Full-Text)',
-    description: `
-    Recherche performante des organisations avec PostgreSQL Full-Text Search (tsvector)
-    et cache Redis.
-
-    **Fonctionnalités :**
-    - Recherche textuelle avancée (nom, description)
-    - Classement par pertinence (rank)
-    - Filtres ville / région
-    - Cache Redis (5 minutes)
-
-    **Exemples :**
-    - /organizations/search?q=hôpital
-    - /organizations/search?q=clinique&city=Douala
-    - /organizations/search?q=laquintinie&page=2
-  `,
-  })
-  @ApiQuery({ name: 'q', required: false, type: String })
-  @ApiQuery({ name: 'city', required: false, type: String })
-  @ApiQuery({ name: 'region', required: false, type: String })
-  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
-  @ApiResponse({
-    status: 200,
-    description: 'Résultats de recherche',
-  })
-  async searchOrganizations(@Query() query: SearchOrganizationsDto) {
-    return this.organizationsService.searchOrganizations(query);
   }
 }

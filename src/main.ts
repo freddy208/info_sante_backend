@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { NestFactory } from '@nestjs/core';
@@ -45,7 +45,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // Garde seulement les champs du DTO
-      forbidNonWhitelisted: true, // Rejette les champs non autorisés
+      forbidNonWhitelisted: false, // Rejette les champs non autorisés
       transform: true, // Active la transformation de types
       transformOptions: {
         enableImplicitConversion: true, // "123" → 123 automatiquement

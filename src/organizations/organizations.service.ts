@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/await-thenable */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -235,9 +234,14 @@ export class OrganizationsService {
   }> {
     const { email, password } = loginDto;
 
+    // SÉCURITÉ : Prisma crash si email est undefined dans un findUnique
+    if (!email || !password) {
+      throw new BadRequestException('Email et mot de passe sont requis');
+    }
+
     // ✅ 1. Vérifier que l'organisation existe
     const organization = await this.prisma.organization.findUnique({
-      where: { email },
+      where: { email: email.toLowerCase().trim() }, // Nettoyage au passage
     });
 
     if (!organization) {
@@ -383,6 +387,11 @@ export class OrganizationsService {
    * @param organizationId - ID de l'organisation
    */
   async getProfile(organizationId: string): Promise<OrganizationEntity> {
+    if (!organizationId) {
+      throw new UnauthorizedException(
+        "Identifiant d'organisation manquant dans le token",
+      );
+    }
     const organization = await this.prisma.organization.findUnique({
       where: { id: organizationId },
       include: {
@@ -938,46 +947,32 @@ export class OrganizationsService {
    */
   // src/organizations/organizations.service.ts
 
-  private async generateTokens(organizationId: string): Promise<{
+  // Dans OrganizationsService
+  // Dans OrganizationsService
+  private generateTokens(organizationId: string): {
     accessToken: string;
     refreshToken: string;
-  }> {
-    // Récupérer l'organisation pour obtenir l'email
-    const organization = await this.prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { email: true },
-    });
-
-    if (!organization) {
-      throw new NotFoundException('Organisation non trouvée');
-    }
-
-    // Payload pour l'access token
-    const accessPayload = {
+  } {
+    const payload = {
       sub: organizationId,
-      email: organization.email,
-      type: 'access' as const,
+      type: 'access',
     };
 
-    // Payload pour le refresh token
     const refreshPayload = {
       sub: organizationId,
-      email: organization.email,
-      type: 'refresh' as const,
+      type: 'refresh',
     };
 
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(accessPayload, {
-        secret: this.configService.get<string>('jwt.secret'),
-        expiresIn: this.configService.get<string>('jwt.expiresIn') as any,
-      }),
-      this.jwtService.signAsync(refreshPayload, {
-        secret: this.configService.get<string>('jwt.refreshSecret'),
-        expiresIn: this.configService.get<string>(
-          'jwt.refreshExpiresIn',
-        ) as any,
-      }),
-    ]);
+    // On force le typage pour éviter le conflit avec Buffer ou StringValue
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.configService.get<string>('jwt.secret'),
+      expiresIn: this.configService.get<string>('jwt.expiresIn') as any, // 'any' ici car JwtService attend un format spécifique (StringValue)
+    });
+
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      secret: this.configService.get<string>('jwt.refreshSecret'),
+      expiresIn: this.configService.get<string>('jwt.refreshExpiresIn') as any,
+    });
 
     return { accessToken, refreshToken };
   }

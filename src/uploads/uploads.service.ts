@@ -96,7 +96,7 @@ import { PrismaService } from '../prisma/prisma.service';
     file: Express.Multer.File,
     uploadImageDto: UploadImageDto,
     uploaderId: string,
-    uploaderType: UserType = UserType.USER,
+    uploaderType: UserType = UserType.ORGANIZATION,
   ): Promise<MediaEntity> {
     // ✅ VALIDATION DU FICHIER
     this.validateImageFile(file);

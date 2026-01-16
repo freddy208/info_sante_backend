@@ -6,10 +6,10 @@ import {
   IsArray,
   IsDateString,
   IsBoolean,
-  IsDecimal,
   IsInt,
   Min,
   Length,
+  IsNumber,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -113,7 +113,7 @@ export class CreateAnnouncementDto {
     example: '5000',
   })
   @Type(() => Number)
-  @IsDecimal()
+  @IsNumber()
   @IsOptional()
   cost?: number;
 

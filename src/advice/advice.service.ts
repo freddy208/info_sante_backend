@@ -1,5 +1,5 @@
 /* eslint-disable prefer-const */
-/* eslint-disable @typescript-eslint/no-unused-expressions */
+
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 
 /* eslint-disable prettier/prettier */
@@ -432,86 +432,81 @@ async viewAdvice(id: string): Promise<ViewAdviceResponseDto> {
     }
   }
 
-  async getAdviceStats(organizationId?: string): Promise<{
-    total: number;
-    published: number;
-    draft: number;
-    archived: number;
-    byPriority: Record<Priority, number>;
-    totalViews: number;
-    totalReactions: number;
-    totalShares: number;
-    byAudience: Record<TargetAudience, number>;
-  }> {
-    const where = organizationId ? { organizationId } : {};
+// src/advice/advice.service.ts
 
-    const [
-      total,
-      published,
-      draft,
-      archived,
-      byPriority,
-      byAudience,
-      totalViews,
-      totalReactions,
-      totalShares,
-    ] = await Promise.all([
-      this.prisma.advice.count({ where }),
-      this.prisma.advice.count({
-        where: { ...where, status: AdviceStatus.PUBLISHED },
-      }),
-      this.prisma.advice.count({
-        where: { ...where, status: AdviceStatus.DRAFT },
-      }),
-      this.prisma.advice.count({
-        where: { ...where, status: AdviceStatus.ARCHIVED },
-      }),
-      this.prisma.advice.groupBy({
-        by: ['priority'],
-        where,
-        _count: { priority: true },
-      }),
-      this.getAdviceByAudience(where),
-      this.prisma.advice.aggregate({
-        where,
-        _sum: { viewsCount: true },
-      }),
-      this.prisma.advice.aggregate({
-        where,
-        _sum: { reactionsCount: true },
-      }),
-      this.prisma.advice.aggregate({
-        where,
-        _sum: { sharesCount: true },
-      }),
+async getAdviceStats(organizationId?: string): Promise<{
+  total: number;
+  published: number;
+  draft: number;
+  archived: number;
+  byPriority: Record<Priority, number>;
+  totalViews: number;
+  totalReactions: number;
+  totalShares: number;
+  byAudience: Record<TargetAudience, number>;
+}> {
+  const where = organizationId ? { organizationId } : {};
+
+  try {
+    // 🚀 Optimisation 1 : On regroupe les agrégations de sommes en une seule requête
+   // Utilisation d'un Promise.all "protégé"
+    const [counts, aggregateSums, byPriority, advicesForAudience] = await Promise.all([
+      this.prisma.advice.groupBy({ by: ['status'], where, _count: { status: true } }),
+      this.prisma.advice.aggregate({ where, _sum: { viewsCount: true, reactionsCount: true, sharesCount: true } }),
+      this.prisma.advice.groupBy({ by: ['priority'], where, _count: { priority: true } }),
+      this.prisma.advice.findMany({ where, select: { targetAudience: true } }),
     ]);
 
-    const byPriorityData = byPriority.reduce(
-      (acc, item) => {
-        acc[item.priority] = item._count.priority;
-        return acc;
-      },
-      {} as Record<Priority, number>,
-    );
+    // 2. Formatage des résultats des comptes par statut
+    const statusCounts = counts.reduce((acc, curr) => {
+      acc[curr.status] = curr._count.status;
+      return acc;
+    }, {} as Record<string, number>);
 
-    Object.values(Priority).forEach((priority) => {
-      if (!byPriorityData[priority]) {
-        byPriorityData[priority] = 0;
-      }
-    });
+    // 3. Formatage priorité
+    const byPriorityData = byPriority.reduce((acc, item) => {
+      acc[item.priority] = item._count.priority;
+      return acc;
+    }, {} as Record<Priority, number>);
+
+    // Remplissage des valeurs par défaut pour les énumérations
+    Object.values(Priority).forEach(p => { if (!byPriorityData[p]) byPriorityData[p] = 0; });
+
+    // 4. Calcul audience
+    const byAudience = advicesForAudience.reduce((acc, advice) => {
+      advice.targetAudience.forEach((aud) => {
+        acc[aud] = (acc[aud] || 0) + 1;
+      },);
+      return acc;
+    }, {} as Record<TargetAudience, number>);
+
+    Object.values(TargetAudience).forEach(a => { if (!byAudience[a]) byAudience[a] = 0; });
 
     return {
-      total,
-      published,
-      draft,
-      archived,
+      total: (statusCounts[AdviceStatus.PUBLISHED] || 0) + (statusCounts[AdviceStatus.DRAFT] || 0) + (statusCounts[AdviceStatus.ARCHIVED] || 0),
+      published: statusCounts[AdviceStatus.PUBLISHED] || 0,
+      draft: statusCounts[AdviceStatus.DRAFT] || 0,
+      archived: statusCounts[AdviceStatus.ARCHIVED] || 0,
       byPriority: byPriorityData,
-      totalViews: totalViews?._sum?.viewsCount || 0,
-      totalReactions: totalReactions?._sum?.reactionsCount || 0,
-      totalShares: totalShares?._sum?.sharesCount || 0,
-      byAudience: byAudience,
+      totalViews: aggregateSums?._sum?.viewsCount || 0,
+      totalReactions: aggregateSums?._sum?.reactionsCount || 0,
+      totalShares: aggregateSums?._sum?.sharesCount || 0,
+      byAudience,
     };
+  } catch (error) {
+    this.logger.error(`Erreur stats advice: ${error.message}`);
+    // Retourner des valeurs par défaut pour éviter de faire planter le dashboard frontend
+    return this.getDefaultStats();
   }
+}
+
+// Méthode utilitaire pour éviter le crash en cas d'erreur DB
+private getDefaultStats() {
+  return {
+    total: 0, published: 0, draft: 0, archived: 0,
+    byPriority: {} as any, totalViews: 0, totalReactions: 0, totalShares: 0, byAudience: {} as any
+  };
+}
 
   // =====================================
   // 🔧 GESTION DU CACHE (CORRIGÉ POUR TS)

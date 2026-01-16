@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 // src/common/pipes/parse-uuid.pipe.ts
 
 import { PipeTransform, Injectable, BadRequestException } from '@nestjs/common';
